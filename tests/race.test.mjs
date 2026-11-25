@@ -1,0 +1,156 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { Collision } from "../src/core/collision.ts";
+import { blankTeeState } from "../src/core/types.ts";
+import { TILE_FREEZE } from "../src/core/tuning.ts";
+import { RaceClock, RaceDriver, fieldWaypoint, isRaceMap, raceHit, raceLines, raceMapLikely, waypoint } from "../src/plan/race.ts";
+
+const TILE = 32;
+const at = (tx, ty) => ({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
+
+function makeMap({ width = 8, height = 8, game = [], front = [] } = {}) {
+  const tiles = new Uint8Array(width * height);
+  for (const [x, y, t] of game) tiles[y * width + x] = t;
+  const extras = front.length > 0
+    ? { front: { index: Uint8Array.from(front.map(([, , t]) => t)), flags: new Uint8Array(width * height) } }
+    : undefined;
+  if (extras) {
+    // The front array in the test is a sparse [x, y, tile] list.
+    const index = new Uint8Array(width * height);
+    for (const [x, y, t] of front) index[y * width + x] = t;
+    extras.front.index = index;
+  }
+  return new Collision(width, height, tiles, undefined, undefined, extras);
+}
+
+function tee(pos, extra = {}) {
+  return { ...blankTeeState(), alive: true, pos, ...extra };
+}
+
+function driver(col, opts = {}) {
+  return new RaceDriver(col, { pumpMs: Infinity, pumpYields: Infinity, killCooldownTicks: 1, ...opts });
+}
+
+test("start and finish tiles are found in both the game and the front layer", () => {
+  const col = makeMap({ game: [[1, 1, 33]], front: [[3, 4, 34], [3, 5, 34]] });
+  const lines = raceLines(col);
+  assert.deepEqual(Array.from(lines.start), [1 * 8 + 1]);
+  assert.ok(Array.from(lines.finish).includes(4 * 8 + 3));
+  assert.ok(Array.from(lines.finish).includes(5 * 8 + 3));
+  assert.equal(lines.startBoxes.length, 1);
+  assert.equal(lines.finishBoxes.length, 1);
+  assert.equal(isRaceMap(col), true);
+  assert.equal(raceMapLikely(col, false), true);
+  assert.equal(raceMapLikely(col, true), false, "a map with a WB is not a race map");
+
+  const hit = raceHit(col, at(1, 1), at(1, 1));
+  assert.equal(hit.start, true);
+  assert.equal(hit.finish, false);
+  assert.equal(raceHit(col, at(3, 4), at(3, 4)).finish, true);
+  const noRace = makeMap();
+  assert.equal(isRaceMap(noRace), false);
+  assert.equal(raceMapLikely(noRace, false), false);
+});
+
+test("RaceClock starts, finishes, restarts and never finishes before a start", () => {
+  const col = makeMap({ game: [[1, 1, 33], [5, 5, 34]] });
+  const clock = new RaceClock();
+  assert.equal(clock.observe(col, at(5, 5), at(5, 5), 1), null, "finish alone does not count");
+  assert.equal(clock.observe(col, at(1, 1), at(1, 1), 10), "start");
+  assert.equal(clock.state, "started");
+  assert.equal(clock.observe(col, at(2, 1), at(2, 1), 20), null);
+  assert.equal(clock.observe(col, at(5, 5), at(5, 5), 30), "finish");
+  assert.equal(clock.state, "finished");
+  assert.equal(clock.time, 20);
+  clock.reset();
+  assert.equal(clock.state, "none");
+  assert.equal(clock.startTick, -1);
+  assert.equal(clock.time, -1);
+  assert.equal(clock.observe(col, at(1, 1), at(1, 1), 40), "start");
+  assert.equal(clock.observe(col, at(5, 5), at(5, 5), 55), "finish");
+  assert.equal(clock.time, 15);
+});
+
+test("waypoint picks a route step after the span and prefers teleporters", () => {
+  const steps = [
+    { x: 1, y: 1 },
+    { x: 3, y: 1 },
+    { x: 5, y: 1 },
+  ];
+  assert.deepEqual(waypoint(steps, { tx: 0, ty: 0 }, 3)?.tile, { tx: 3, ty: 1 });
+  assert.equal(waypoint(steps, { tx: 0, ty: 0 }, 99), null);
+  assert.deepEqual(waypoint([{ x: 2, y: 2, tele: true }, ...steps], { tx: 0, ty: 0 }, 1), { tile: { tx: 2, ty: 2 }, tele: true });
+  assert.deepEqual(waypoint([{ x: 1, y: 1, freeze: true }, { x: 2, y: 1 }], { tx: 0, ty: 0 }, 1)?.tile, undefined);
+
+  const width = 5;
+  const field = new Float64Array(width * 3).fill(9);
+  field[0] = 4;
+  field[1] = 3;
+  field[2] = 2;
+  field[3] = 1;
+  assert.deepEqual(fieldWaypoint(field, width, 3, { tx: 0, ty: 0 }, 2), { tx: 2, ty: 0 });
+  assert.equal(fieldWaypoint(field, width, 3, { tx: 4, ty: 2 }, 2), null);
+});
+
+test("respawn resets the run clock and the current leg", () => {
+  const col = makeMap({ game: [[1, 1, 33], [5, 5, 34]] });
+  const d = driver(col);
+  d.step(tee(at(1, 1)), 1, 0);
+  assert.equal(d.clock.state, "started");
+  const goalBefore = d.leg.goal;
+  assert.notEqual(goalBefore, null);
+  d.step({ ...tee(at(1, 1)), alive: false }, 2, 0);
+  d.step(tee(at(2, 2)), 3, 0); // respawn away from the start line
+  assert.equal(d.clock.state, "none");
+  assert.equal(d.clock.startTick, -1);
+  assert.notEqual(d.leg.goal, goalBefore, "a fresh leg is planned after the respawn");
+  assert.equal(d.leg.fails, 0);
+});
+
+test("deep freeze while moving does not cause a premature /kill", () => {
+  const col = makeMap({ game: [[1, 1, 33], [5, 5, 34]] });
+  const d = driver(col, { deepKillTicks: 25, stallKillTicks: 1000 });
+  let killed = false;
+  for (let tick = 1; tick <= 40; tick++) killed ||= d.step(tee(at(2, 2), { deepFrozen: true, vel: { x: 60, y: 0 } }), tick, 0).kill;
+  assert.equal(killed, false, "a moving tee in deep freeze is not stuck");
+
+  const frozenCol = makeMap({ game: [[1, 1, 33], [5, 5, 34]], front: [[2, 2, TILE_FREEZE]] });
+  const d2 = driver(frozenCol, { deepKillTicks: 25, stallKillTicks: 1000 });
+  let stuckKill = -1;
+  for (let tick = 1; tick <= 40; tick++) {
+    if (d2.step(tee(at(2, 2), { deepFrozen: true, frozen: true, vel: { x: 0, y: 0 } }), tick, 0).kill) {
+      stuckKill = tick;
+      break;
+    }
+  }
+  assert.ok(stuckKill >= 25, `a tee stuck in deep freeze should be killed after 25 ticks, got ${stuckKill}`);
+});
+
+test("a teleporter jump clears freeze/failure timers", () => {
+  const col = makeMap({ width: 12, game: [[1, 1, 33], [5, 5, 34]], front: [[2, 1, TILE_FREEZE], [9, 1, TILE_FREEZE]] });
+  const d = driver(col, { deepKillTicks: 25, restKillTicks: 25, stallKillTicks: 1000 });
+  const frozen = (tx) => tee(at(tx, 1), { deepFrozen: true, frozen: true, vel: { x: 0, y: 0 } });
+  for (let tick = 1; tick <= 10; tick++) assert.equal(d.step(frozen(2), tick, 0).kill, false);
+  let killed = false;
+  for (let tick = 11; tick <= 30; tick++) {
+    // A teleport jump (224 px) to another freeze tile at tick 11 restarts both timers.
+    killed ||= d.step(frozen(9), tick, 0).kill;
+  }
+  assert.equal(killed, false, "the /kill timers must restart at the teleport destination");
+});
+
+test("a finished run clears the no-way-found verdict", () => {
+  const col = makeMap({ game: [[1, 1, 33], [5, 5, 34]] });
+  const d = driver(col, { maxLivesWithoutGain: 2 });
+  d.lived = true;
+  d.respawned();
+  d.lived = true;
+  d.respawned();
+  assert.equal(d.gaveUp, true);
+  d.finishedThisLife = true;
+  d.lived = true;
+  d.respawned();
+  assert.equal(d.gaveUp, false);
+  assert.equal(d.clock.state, "none");
+});

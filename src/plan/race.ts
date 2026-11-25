@@ -358,6 +358,7 @@ export class RaceDriver {
         this.note(`no way found: ${this.livesWithoutGain} runs in a row got no further, standing`);
       }
     }
+    const finished = this.finishedThisLife || this.clock.state === "finished";
     this.lived = false;
     this.lifeBest = Infinity;
     this.finishedThisLife = false;
@@ -366,6 +367,14 @@ export class RaceDriver {
     this.dropLeg();
     this.lastPos = null;
     this.resetKillTimers(-1);
+    this.finishedAt = -1;
+    if (finished) {
+      // A completed run is a fresh start, not another failed life: forget
+      // stalled cells and the "no way found" verdict from the previous run.
+      this.gaveUpValue = false;
+      this.livesWithoutGain = 0;
+      this.failedAt.clear();
+    }
   }
 
   private resetKillTimers(tick: number): void {
@@ -423,16 +432,20 @@ export class RaceDriver {
       this.finishedThisLife = true;
     }
 
-    if (jumped && (this.walker !== null || this.legJob !== null || this.ahead !== null)) {
-      this.note(`moved ${Math.round(Math.hypot(self.pos.x - (prev?.x ?? 0), self.pos.y - (prev?.y ?? 0)))} px at once (a teleporter): planning the leg again`);
-      this.dropLeg();
+    if (jumped) {
+      if (this.walker !== null || this.legJob !== null || this.ahead !== null) {
+        this.note(`moved ${Math.round(Math.hypot(self.pos.x - (prev?.x ?? 0), self.pos.y - (prev?.y ?? 0)))} px at once (a teleporter): planning the leg again`);
+        this.dropLeg();
+      }
+      // A teleport does not mean the tee is stuck: freeze/deep-freeze timers
+      // from before the jump must not trigger a /kill right after it.
+      this.resetKillTimers(tick);
     }
     if (this.phase !== phaseBefore) {
 
       if (seen === "start") this.note(`started the run at (${Math.trunc(self.pos.x / TILE)},${Math.trunc(self.pos.y / TILE)})`);
       this.dropLeg();
-      this.best = Infinity;
-      this.bestTick = tick;
+      this.resetKillTimers(tick);
     }
     if (this.phase === "done") {
       const again = this.o.repeatAfterTicks > 0 && this.finishedAt >= 0 && tick - this.finishedAt >= this.o.repeatAfterTicks && tick - this.lastKill >= this.o.killCooldownTicks;
@@ -547,7 +560,9 @@ export class RaceDriver {
     if (self.deepFrozen === true) {
       if (this.deepSince < 0) this.deepSince = tick;
     } else this.deepSince = -1;
-    if (this.deepSince >= 0 && tick - this.deepSince >= this.o.deepKillTicks) return { why: "deep-frozen", at };
+    // Deep freeze alone is not a dead end: a tee can still be moving through
+    // it or be carried by a teleporter. Only kill when it is also stuck.
+    if (this.deepSince >= 0 && tick - this.deepSince >= this.o.deepKillTicks && ((self.frozen && onFreeze && atRest) || tick - this.bestTick >= this.o.stallKillTicks)) return { why: "deep-frozen", at };
     if (this.restSince >= 0 && tick - this.restSince >= this.o.restKillTicks) return { why: `lying in the freeze at (${here.tx},${here.ty})`, at };
     if (this.frozenSince >= 0 && tick - this.frozenSince >= this.o.frozenKillTicks) return { why: `frozen for ${tick - this.frozenSince} ticks`, at };
     if (tick - this.bestTick >= this.o.stallKillTicks) return { why: `no progress for ${tick - this.bestTick} ticks at (${here.tx},${here.ty})`, at };

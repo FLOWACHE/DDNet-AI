@@ -311,7 +311,7 @@ const WB_FINISH = process.env.WB_FINISH !== "0";
 
 const WB_OWNER_KEEPS_ENV = process.env.WB_OWNER_KEEPS === "1";
 
-const RACE_TEST_ENV = process.env.DDNET_AI_RACE === "1";
+const RACE_OPT_OUT = process.env.DDNET_AI_RACE === "0";
 
 const GORES_TEST_ENV = process.env.DDNET_AI_GORES === "1";
 
@@ -1017,11 +1017,11 @@ export function commandSpecs(t: Say, race = false, gores = false): CommandSpec[]
       ? c(
           "style",
           race ? "default|wb|duel|race|gores" : "default|wb|duel|gores",
-          race ? t("способы играть, как в окне (race: гонка от старта до финиша, gores: проход gores-карты по готовому маршруту, тестовые)") : t("способы играть, как в окне (gores: проход gores-карты по готовому маршруту, тестовая)"),
+          race ? t("способы играть, как в окне (race: гонка от старта до финиша, gores: проход gores-карты по готовому маршруту, тест)") : t("способы играть, как в окне (gores: проход gores-карты по готовому маршруту, тестовая)"),
           race ? ["default", "wb", "duel", "race", "gores"] : ["default", "wb", "duel", "gores"],
         )
       : race
-      ? c("style", "default|wb|duel|race", t("способы играть, как в окне (race: гонка от старта до финиша, тестовая)"), ["default", "wb", "duel", "race"])
+      ? c("style", "default|wb|duel|race", t("способы играть, как в окне (race: гонка от старта до финиша)"), ["default", "wb", "duel", "race"])
       : c("style", "default|wb|duel", t("три способа играть, как в окне"), ["default", "wb", "duel"]),
     c("clip", "[note]", t("сохранить последние 30 с в файл для разбора")),
     c("log", "on|off", t("показывать все отладочные строки или только строку состояния"), onOff),
@@ -1029,11 +1029,11 @@ export function commandSpecs(t: Say, race = false, gores = false): CommandSpec[]
       ? c(
           "mode",
           race ? "fight|passive|hold|race|gores" : "fight|passive|hold|gores",
-          race ? t("fight (по умолчанию), passive (не вступать в бой), hold (стоять), race (гонка) или gores (gores-карта; обе тестовые)") : t("fight (по умолчанию), passive (не вступать в бой), hold (стоять) или gores (gores-карта, тестовая)"),
+          race ? t("fight (по умолчанию), passive (не вступать в бой), hold (стоять), race (гонка) или gores (gores-карта, тестовая)") : t("fight (по умолчанию), passive (не вступать в бой), hold (стоять) или gores (gores-карта, тестовая)"),
           race ? ["fight", "passive", "hold", "race", "gores"] : ["fight", "passive", "hold", "gores"],
         )
       : race
-      ? c("mode", "fight|passive|hold|race", t("fight (по умолчанию), passive (не вступать в бой), hold (стоять) или race (гонка, тестовая)"), ["fight", "passive", "hold", "race"])
+      ? c("mode", "fight|passive|hold|race", t("fight (по умолчанию), passive (не вступать в бой), hold (стоять) или race (гонка)"), ["fight", "passive", "hold", "race"])
       : c("mode", "fight|passive|hold", t("fight (по умолчанию), passive (не вступать в бой) или hold (стоять)"), ["fight", "passive", "hold"]),
     c("try", "<name>|off|auto", t("включить кандидата настройки планировщика на ходу"), [...Object.keys(TRY_SETTINGS), "off", "auto"]),
     c("target", "<nick>", t("драться только с этим игроком, '!target -' снимает (со вторым ботом: с обоими; !d target <nick> только со вторым)"), ["-"], "nick"),
@@ -2288,6 +2288,7 @@ export class DdnetBot {
     this.hitUsById.clear();
     this.stuck = null;
     this.helpSeen = null;
+    this.dropRace();
   }
 
   private nameOfLive(id: number): string {
@@ -3304,17 +3305,23 @@ export class DdnetBot {
   }
 
   raceAllowed(): boolean {
-    return this.cfg.race ?? RACE_TEST_ENV;
+    return (this.cfg.race ?? true) && !RACE_OPT_OUT;
+  }
+
+  private dropRace(): void {
+    this.race = null;
+    this.raceNoMapSaid = false;
+    this.raceGaveUpSaid = false;
   }
 
   private raceCommand(on: boolean): string {
     if (!on) {
       if (!this.raceOn) return "race: off";
       this.raceOn = false;
-      this.race = null;
+      this.dropRace();
       return "race: off -- plays as usual";
     }
-    if (!this.raceAllowed()) return "race: a test feature, switched off (start the bot with DDNET_AI_RACE=1 to try it)";
+    if (!this.raceAllowed()) return "race: switched off (DDNET_AI_RACE=0, or race:false in the config)";
     const known = this.collisionReady ? isRaceMap(this.world.collision) : null;
 
     const gone = this.goresOn ? `${this.goresCommand(false)}; ` : "";
@@ -3326,17 +3333,15 @@ export class DdnetBot {
     this.mode = "fight";
     this.acting = true;
     this.raceOn = true;
-    this.race = null;
-    this.raceNoMapSaid = false;
-    this.raceGaveUpSaid = false;
-    const what = known === false ? "but this map has no finish line: it waits (!style default to play as usual)" : known === null ? "it starts once the map is loaded" : "it runs from the spawn through the start line to the finish and fights nobody (a test feature)";
+    this.dropRace();
+    const what = known === false ? "but this map has no finish line: it waits (!style default to play as usual)" : known === null ? "it starts once the map is loaded" : "it runs from the spawn through the start line to the finish and fights nobody";
     return `${gave}race: on -- ${what}`;
   }
 
   private driveRace(client: TwClient, self: TeeState): void {
     const col = this.world.collision;
     if (this.race === null || this.race.col !== col) {
-      this.race = null;
+      this.dropRace();
       if (!isRaceMap(col)) {
         if (!this.raceNoMapSaid) {
           this.raceNoMapSaid = true;
@@ -3347,8 +3352,6 @@ export class DdnetBot {
       }
 
       this.race = new RaceDriver(col, { killCooldownTicks: KILL_COOLDOWN_TICKS });
-      this.raceNoMapSaid = false;
-      this.raceGaveUpSaid = false;
       this.emit("event", t("гонка: бежит от старта к финишу"));
     }
     const race = this.race;

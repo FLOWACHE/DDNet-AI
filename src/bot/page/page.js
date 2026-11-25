@@ -244,7 +244,7 @@ $('#emo').addEventListener('change',()=>{const v=$('#emo').value;if(v)botCmd('!e
 let panel=null,doingText='';
 const MODE_CMD={fight:'!go',passive:'!mode passive',hold:'!mode hold'};
 const STYLE_SHORT={default:t('дефолт'),wb:t('ВБ'),duel:t('дуэль'),race:t('гонка'),gores:t('горес')};
-const STYLE_HINT={default:t('Обычная игра: дерётся там, где игра, ВБ не держит'),wb:t('Держит вейблок и закидывает во фриз всех, кто идёт через него'),duel:t('Один на один: бьёт соперника, никуда не уходит. Включается и сам, когда бот принял дуэль'),race:t('Гонка (тестовая): бежит от старта до финиша, ни с кем не дерётся'),gores:t('Горес (тест): проходит gores-карту по заранее решённому маршруту, ни с кем не дерётся')};
+const STYLE_HINT={default:t('Обычная игра: дерётся там, где игра, ВБ не держит'),wb:t('Держит вейблок и закидывает во фриз всех, кто идёт через него'),duel:t('Один на один: бьёт соперника, никуда не уходит. Включается и сам, когда бот принял дуэль'),race:t('Гонка: бежит от старта до финиша, ни с кем не дерётся'),gores:t('Горес (тест): проходит gores-карту по заранее решённому маршруту, ни с кем не дерётся')};
 for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.addEventListener('click',()=>void botCmd(MODE_CMD[b.dataset.mode],true));
 for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.addEventListener('click',()=>void botCmd('!wb '+b.dataset.wb,true));
 for(const b of document.querySelectorAll('#styleseg [data-style]'))b.addEventListener('click',()=>void botCmd('!style '+b.dataset.style,true));
@@ -358,19 +358,19 @@ function renderPanel(s){
 
  const wb=panel?panel.wbMode:null,hasWb=wb!==null&&wb!==undefined;
 
- const raceTest=!!(panel&&panel.raceTest),raceOk=raceTest&&!!(panel.raceMap||panel.race);
+ const raceOk=!!(panel&&(panel.raceMap||panel.race));
 
  const goresTest=!!(panel&&panel.goresTest),goresOk=goresTest&&!!(panel.goresMap||panel.gores);
  const style=panel&&panel.race?'race':panel&&panel.gores?'gores':panel&&panel.inDuel?'duel':hasWb&&wb!=='off'?'wb':'default';
  for(const b of document.querySelectorAll('#styleseg [data-style],#sbtns [data-style]')){const on=b.dataset.style===style;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on))}
  for(const wbBtn of document.querySelectorAll('#styleseg [data-style=wb],#sbtns [data-style=wb]')){wbBtn.disabled=!hasWb;wbBtn.title=hasWb?STYLE_HINT.wb:t('На этой карте нет ВБ, который бот знает')}
- for(const rb of document.querySelectorAll('#styleseg [data-style=race],#sbtns [data-style=race]')){rb.hidden=!raceTest;rb.disabled=!raceOk;rb.title=raceOk?STYLE_HINT.race:t('Эта карта не похожа на гонку: нет старта и финиша или есть ВБ')}
+ for(const rb of document.querySelectorAll('#styleseg [data-style=race],#sbtns [data-style=race]')){rb.hidden=false;rb.disabled=!raceOk;rb.title=raceOk?STYLE_HINT.race:t('Эта карта не похожа на гонку: нет старта и финиша или есть ВБ')}
  for(const gb of document.querySelectorAll('#styleseg [data-style=gores],#sbtns [data-style=gores]')){gb.hidden=!goresTest;gb.disabled=!goresOk;gb.title=goresOk?STYLE_HINT.gores:t('На этой карте нет gores-трассы от спавна до финиша')}
  for(const sb of document.querySelectorAll('#sbtns [data-style]'))sb.disabled=s.phase!=='online'||(sb.dataset.style==='wb'&&!hasWb)||(sb.dataset.style==='race'&&!raceOk)||(sb.dataset.style==='gores'&&!goresOk);
  for(const duelBtn of document.querySelectorAll('#styleseg [data-style=duel],#sbtns [data-style=duel]'))duelBtn.classList.toggle('auto',!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
  const shint=$('#shint');if(shint)shint.textContent=STYLE_HINT[style];
  const pbl=$('#pbstylel');if(pbl)pbl.textContent=STYLE_SHORT[style];
- const pbst=$('#pbstyle');if(pbst){pbst.disabled=s.phase!=='online';pbst.title=raceTest&&goresTest?t('Сменить игру: дефолт, ВБ, дуэль, гонка, горес'):goresTest?t('Сменить игру: дефолт, ВБ, дуэль, горес'):raceTest?t('Сменить игру: дефолт, ВБ, дуэль, гонка'):t('Сменить игру: дефолт, ВБ, дуэль')}
+ const pbst=$('#pbstyle');if(pbst){pbst.disabled=s.phase!=='online';pbst.title=goresTest?t('Сменить игру: дефолт, ВБ, дуэль, гонка, горес'):t('Сменить игру: дефолт, ВБ, дуэль, гонка')}
  $('#wbrow').hidden=style!=='wb';
  for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb===wb);
  const pin=panel&&panel.pinnedTarget;
@@ -1911,7 +1911,7 @@ function igBuildBot(r){
  const style=igRow(body,t('режим'));
 
  r.seg.style=igSeg(style,[['default',t('обычный')],['wb',t('ВБ')],['duel',t('дуэль')],['race',t('гонка')],['gores',t('горес')]],(v)=>igSend(igState.sel,'!style '+v));
- r.seg.style.btns.race.hidden=true;r.seg.style.btns.gores.hidden=true;
+ r.seg.style.btns.gores.hidden=true;
  const side=igRow(body,t('сторона'));
  r.seg.wb=igSeg(side,[['auto',t('авто')],['left',t('левый ВБ')],['right',t('правый ВБ')]],(v)=>igSend(igState.sel,'!wb '+v));
  const doing=igRow(body,t('делать'));
@@ -2246,7 +2246,7 @@ function igRender(){
 
   const pn=sel.panel||{},raceOk=!!(pn.raceMap||pn.race),goresOk=!!(pn.goresMap||pn.gores);
   const sb=r.seg.style.btns;
-  sb.race.hidden=!pn.raceTest;sb.gores.hidden=!pn.goresTest;
+  sb.race.hidden=false;sb.gores.hidden=!pn.goresTest;
   sb.race.title=raceOk?STYLE_HINT.race:t('Эта карта не похожа на гонку: нет старта и финиша или есть ВБ');
   sb.gores.title=goresOk?STYLE_HINT.gores:t('На этой карте нет gores-трассы от спавна до финиша');
   r.seg.style.set(style,[...(hasWb?[]:['wb']),...(raceOk?[]:['race']),...(goresOk?[]:['gores'])]);
