@@ -15,7 +15,10 @@ Every move is checked in the game's real physics, 25 times a second.
 [![DDNet 20](https://img.shields.io/badge/DDNet-20-E07A2E)](https://ddnet.org)
 [![Electron 44](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)](#the-window)
 
-[Quick start](#quick-start) · [The window](#the-window) · [How it plays](#how-it-plays) · [Controls](#controls) · [FAQ](#faq)
+[Quick start](#quick-start) · [The window](#the-window) · [How it plays](#how-it-plays) · [Race maps](#race-maps) · [Files on drive D](#files-on-drive-d) · [Controls](#controls) · [FAQ](#faq)
+
+> [!NOTE]
+> This is a modified version (a fork) of the original [DDNet AI](https://github.com/Wranked1/DDNet-AI) by Wranked1. It keeps the attribution in `NOTICE` and is published under GPL-3.0. The main addition is normal race maps as a full mode. By default everything is written on drive `D:` (see [Files on drive D](#files-on-drive-d)).
 
 <img src="assets/en/window.png" width="900" alt="The DDNet AI window: the bot fighting on Copy Love Box">
 
@@ -82,7 +85,7 @@ Without the window, in a console (a headless server, macOS): install [Node.js](h
 - **Keys for the bot.** <kbd>F3</kbd> and <kbd>F4</kbd> vote for it, and buttons make it `/kill`, go to the spectators, show an emote or call a server vote.
 - **Mini mode.** A small window on top of everything, to watch the bot while you play yourself.
 - **Log and notifications.** The bot disconnected, came back, updated: the window tells you.
-- **A bug report.** "Collect a bug report" puts the clips, map memory and the demos you pick into one zip on the desktop. The server password stays out of it.
+- **A bug report.** "Collect a bug report" puts the clips, map memory and the demos you pick into one zip in `data\reports`. The server password stays out of it.
 - **Proxies.** In Settings, the Server section, each bot can have its own SOCKS5 proxy (it has to be SOCKS5 with UDP: HTTP proxies do not carry the game), so the two bots join from different addresses.
 
 <p align="center"><img src="assets/en/mini.png" width="420" alt="Mini mode"><br><sub>Mini mode over the game</sub></p>
@@ -101,6 +104,39 @@ The bot keeps its own copy of DDNet 20 physics and on every step runs dozens of 
 
 > [!NOTE]
 > The bot does not look at the screen and presses nothing for you. It is a separate player: it joins the server by itself, like a normal client, and you can play DDNet on the same computer at the same time.
+
+## Race maps
+
+Race is switched on manually: `!style race`, `!mode race` or `!race on` (off: `!race off`, `!style default`). `DDNET_AI_RACE=1` is **not needed** — the mode is available by default. `DDNET_AI_RACE=0` is an explicit opt-out, and `"race": false` in the settings disables it completely.
+
+The "race" button is always visible in the window and on the bot's page. It is enabled when the map looks like a race map: it has start and finish tiles (including the front layer) and no wayblock. On other maps the button stays visible with the hint "This map does not look like a race…", but is disabled — switch to another style.
+
+What the race driver does:
+
+- starts from the spawn, crosses the start line and follows a route to the finish, fighting nobody;
+- writes the run time to the log (`race: finished in … s`) and the window, then repeats the run with `/kill`;
+- cleanly resets timers and the current leg on respawn, teleport, map change and finish; getting stuck in freeze and premature `/kill` on deep freeze are fixed.
+
+Honest limitations: this is not a universal solver. Simple linear maps with a start and a finish work best. Trick maps, awkward jumps, unusual server tuning, maps with a WB and routes that depend on precise teleporter use may fail. Gores is a separate mode with its own gate (`DDNET_AI_GORES=1` or `!gores on`); it is never mixed into race by accident.
+
+## Files on drive D
+
+| Directory | Contents |
+|---|---|
+| `D:\DDNet-AI\` | repository, code, `node_modules` (read-only while the bot runs) |
+| `D:\DDNet-AI\data\` | `settings.json`, `maps\` |
+| `D:\DDNet-AI\data\runs\` | `routes\`, `routes\gores\`, `dummy\`, `clips\`, `memory\`, `server-avoid.json`, `master-cache.json`, `last-crash.txt`, `duels.json`, `autochat.json`, `ab.json` |
+| `D:\DDNet-AI\data\reports\` | bug-report zips and the default settings export |
+| `D:\DDNet-AI\userdata\` | Electron `userData`: `prefs.json`, `bot-child.json` |
+| `D:\DDNet-AI\cache\` | Node compile cache, update temp files and unpacked map temp files |
+
+Variables and flags:
+
+- `DDNET_AI_HOME` or `--data-dir <path>` — a different data root (the flag wins). Relative paths resolve against the repository folder. `settings.json`, `maps`, `runs` and reports move with it.
+- `DDNET_AI_USER_DATA` — a different Electron `userData` folder (`app.setPath("userData", …)` in `app/main.js`).
+- `DDNET_AI_UPDATE` / `--update` — **updates are off by default**. See [Updates](#updates).
+
+Exceptions: a Start Menu/Desktop shortcut is created only when the user clicks the button, and DDNet demos are read from the player's DDNet installation; neither is bot data.
 
 ## Controls
 
@@ -127,7 +163,9 @@ Typed into the window's command line or into the console. They never reach the g
 | `!home <x> <y>` | where to go back to when there is nobody to fight |
 | `!wb auto`, `!wb left`, `right`, `off` | hold the wayblock on Copy Love Box: it takes the side with fewer players, keeps it and throws whoever comes in into the freeze; `!wb` with no word shows the current state |
 | `!duel on`, `off`, `auto` | a 1 on 1 duel: no WB and no walks; auto turns it on after an accepted duel |
-| `!style default`, `wb`, `duel` | the window's three ways to play: as usual, WB, duel |
+| `!style default`, `wb`, `duel`, `race`, `gores` | the window's ways to play: as usual, WB, duel, race, gores |
+| `!race on`, `!race off` | turn race on/off without any environment variable |
+| `!gores on`, `!gores off` | gores maps (a separate mode, still gated by `DDNET_AI_GORES=1`) |
 | `!d <command>` | a command to the second bot (the dummy), e.g. `!d wb left` |
 | `!goto tele`, `!goto <x> <y>`, `!goto <name>` | walk to the teleporter, to a point or to a player (following them until it gets there) |
 | `!clip [note]` | save the last 30 seconds of the game to a file |
@@ -153,7 +191,7 @@ The bot listens only on the network's private addresses (10.x, 172.16-31.x, 192.
 
 ## Updates
 
-Nothing to do. The bot checks for a new version when it starts and every five minutes after, downloads it and restarts by itself, and the window updates with it. Settings, clips and map memory are left alone.
+**Automatic updates are off by default in this fork.** The code is never overwritten by itself: there is no five-minute check and no request to the original repository. Opt in explicitly with `--update` (or `--update off` to disable), `DDNET_AI_UPDATE=on`, or `"update": "on"` in `settings.json`. The update repository is the fork `FLOWACHE/DDNet-AI`; `DDNET_AI_UPDATE_REPO` can replace it. Settings, data, `runs`, caches and the code itself are never overwritten: the protected list includes `settings.json`, `data`, `userdata`, `cache`, `tests`, `runs`, `.git`. The normal and safest route is `git pull` in `D:\DDNet-AI`.
 
 ## FAQ
 
@@ -161,7 +199,7 @@ Nothing to do. The bot checks for a new version when it starts and every five mi
 <summary><b>The bot jumped into freeze by itself or plays strangely. How can I help?</b></summary>
 <br>
 
-Click the tray icon and choose "Collect a bug report" (or Settings → "About" → "Collect a bug report"). A zip appears on the desktop: the clips that show what went wrong, the map memory, the window's log and `settings.json` without passwords, proxies and keys; you pick the demos yourself. If you recorded a demo, add it too. Attach the zip to a [GitHub issue](https://github.com/Wranked1/DDNet-AI/issues/new/choose) and say the map, the ping and what happened. While the bot plays, `!clip` saves the last 30 seconds into `runs/clips`.
+Click the tray icon and choose "Collect a bug report" (or Settings → "About" → "Collect a bug report"). A zip appears in `data\reports`: the clips that show what went wrong, the map memory, the window's log and `settings.json` without passwords, proxies and keys; you pick the demos yourself. If you recorded a demo, add it too. Attach the zip to a [GitHub issue](https://github.com/Wranked1/DDNet-AI/issues/new/choose) and say the map, the ping and what happened. While the bot plays, `!clip` saves the last 30 seconds into `data\runs\clips`.
 
 </details>
 
@@ -285,7 +323,7 @@ BSC and ETH share one address (EVM networks). Check the network before sending. 
 
 ## License
 
-GPL-3.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). You may run, study and change the bot. Whoever publishes a version of it, changed or not, must name this project as the original and publish their source under the same license. The physics ported from DDNet stays under DDNet's license (zlib), the libraries under their own.
+The fork `FLOWACHE/DDNet-AI` is published under GPL-3.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE), both kept unchanged; the original Wranked1 attribution is preserved). You may run, study and change the bot. Whoever publishes a version of it, changed or not, must name this project as the original and publish their source under the same license. The physics ported from DDNet stays under DDNet's license (zlib), the libraries under their own.
 
 ## Credits
 
