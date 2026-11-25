@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { availableParallelism } from "node:os";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP, isIPv6 } from "node:net";
@@ -78,7 +78,7 @@ import type { CursorHint, CursorProducer, CursorShape } from "./cursor.ts";
 import { deadZone, findRoute, spawnTiles } from "../plan/route.ts";
 import { RaceDriver, isRaceMap, raceMapAnalysis, raceMapLikely } from "../plan/race.ts";
 import { GoresDriver } from "../plan/goresDriver.ts";
-import { GOALS_KEPT_SOLVER, goresSource, mapKeyOf, withSpawnRebuilt } from "../plan/goresMap.ts";
+import { GOALS_KEPT_SOLVER, PHYSICS_VERSION, SOLUTION_VERSION, goresSource, mapKeyOf, withSpawnRebuilt } from "../plan/goresMap.ts";
 import type { CourseSource, MapSolution, SolvedSection } from "../plan/goresMap.ts";
 import { FreezeMemory } from "../plan/memory.ts";
 import { gridHash } from "../plan/routeChoice.ts";
@@ -93,6 +93,8 @@ import { DUTY_PERCENT, FIGHT_DUTY_PERCENT, LibraryBuilder } from "./libraryThrea
 import type { AutoStatus } from "./libraryThread.ts";
 import { DUTY_PERCENT as GORES_DUTY_PERCENT, GORES_LOW_DUTY_PERCENT, SPARE_DUTY_PERCENT as GORES_SPARE_DUTY_PERCENT, GoresSolveHost } from "./goresThread.ts";
 import { RaceFastHost } from "./raceFastThread.ts";
+import { demoTapeFrom } from "../demo/demoTape.ts";
+import { REPO_DIR } from "../env/paths.ts";
 import { getPack } from "./goresPackFetch.ts";
 import type { PackFetchFn, PackMiss } from "./goresPackFetch.ts";
 import { float32, setFloat32 } from "../core/float.ts";
@@ -1559,7 +1561,7 @@ export class DdnetBot {
   private raceGaveUpSaid = false;
   private race: RaceDriver | GoresDriver | null = null;
   private raceNoMapSaid = false;
-  private raceSolved: { col: Collision; source: CourseSource; driver: GoresDriver } | null = null;
+  private raceSolved: { col: Collision; source: CourseSource; driver: RaceDriver | GoresDriver } | null = null;
   private raceSrc: { col: Collision; source: CourseSource | null; float: boolean } | null = null;
   private raceFastHost: RaceFastHost | null = null;
   private raceKey = "";
@@ -3370,6 +3372,67 @@ export class DdnetBot {
     return `${gave}race: on -- ${what}`;
   }
 
+  private raceDemoFile(): string | null {
+    const explicit = process.env.DDNET_AI_DEMO?.trim();
+    if (explicit !== undefined && explicit !== "" && existsSync(explicit)) return explicit;
+    const map = this.mapName().replace(/[^A-Za-z0-9._-]+/g, "_");
+    const dirs = [
+      join(REPO_DIR, "data", "demos"),
+      join(process.env.DDNET_AI_DATA_DIR?.trim() || dirname(this.cfg.settingsFile ?? "settings.json"), "demos"),
+    ];
+    for (const dir of dirs) {
+      if (!existsSync(dir)) continue;
+      const wanted = join(dir, `${map}.demo`);
+      if (existsSync(wanted)) return wanted;
+      const fallback = join(dir, "Linear.demo");
+      if (existsSync(fallback)) return fallback;
+      const files = readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".demo"));
+      if (files.length > 0) return join(dir, files.sort().at(-1) as string);
+    }
+    return null;
+  }
+
+  private raceDemoTape(file: string, col: Collision, source: CourseSource, driver: GoresDriver): boolean {
+    try {
+      const tape = demoTapeFrom(file, col);
+      const n = tape.inputs.length;
+      if (n < 2) return false;
+      const stride = 53;
+      const sol: MapSolution = {
+        version: SOLUTION_VERSION,
+        physicsVersion: PHYSICS_VERSION,
+        key: `race-demo|${basename(file)}`,
+        cutEvery: n,
+        sections: [{
+          idx: 0,
+          from: 0,
+          to: source.course.path.length - 1,
+          startState: tape.states.slice(0, stride),
+          codes: [],
+          edgeTicks: [],
+          inputs: tape.inputs,
+          endState: tape.states.slice(n * stride, (n + 1) * stride),
+          ticks: n,
+          ahead: 0,
+          copiesHeld: 0,
+        }],
+        solvedPrefix: 1,
+        total: 1,
+        complete: true,
+        bestTicks: n,
+        attempts: 0,
+      };
+      driver.setTape(sol, { inputs: tape.inputs, states: tape.states, sectionAt: new Int32Array(n + 1), gateAt: [n] });
+      this.raceGiven = true;
+      this.raceGivenComplete = true;
+      this.emit("event", t("гонка: демо загружено: {n} тиков из {file}, повторяю записанный проход", { n, file: basename(file) }));
+      return true;
+    } catch (err) {
+      this.log(`race: demo could not be loaded (${err instanceof Error ? err.message : String(err)})`);
+      return false;
+    }
+  }
+
   private raceSourceOf(col: Collision): CourseSource | null {
     if (this.raceSrc === null || this.raceSrc.col !== col) this.raceSrc = { col, source: goresSource(col, GOALS_KEPT_SOLVER, true), float: float32 };
     else if (float32 && !this.raceSrc.float) {
@@ -3381,7 +3444,7 @@ export class DdnetBot {
 
   private driveRace(client: TwClient, self: TeeState): void {
     const col = this.world.collision;
-    if (this.raceSolved === null || this.raceSolved.col !== col) {
+    if (this.race === null || this.raceSolved === null || this.raceSolved.col !== col) {
       this.dropRace();
       const source = this.raceSourceOf(col);
       if (!isRaceMap(col) || source === null) {
@@ -3394,15 +3457,42 @@ export class DdnetBot {
       }
 
       this.goresFloat(true);
-      const driver = new GoresDriver(col, source, { killCooldownTicks: KILL_COOLDOWN_TICKS });
+      const demo = this.raceDemoFile();
+      let demoPath: { tx: number; ty: number }[] | null = null;
+      if (demo !== null) {
+        try {
+          demoPath = demoTapeFrom(demo, col).path;
+          this.emit("event", t("гонка: демо загружено: {file}, иду по записанному пути", { file: basename(demo) }));
+        } catch (err) {
+          this.log(`race: demo could not be loaded (${err instanceof Error ? err.message : String(err)})`);
+        }
+      }
+      let driver: RaceDriver | GoresDriver;
+      if (demoPath !== null && demoPath.length > 1) {
+        driver = new RaceDriver(col, {
+          killCooldownTicks: KILL_COOLDOWN_TICKS,
+          legTiles: 16,
+          legMaxTicks: 1800,
+          demoPath,
+          segment: { planWork: 6_000_000, thinNodes: 60_000, planMs: 20_000 },
+        });
+        this.raceGiven = true;
+        this.raceGivenComplete = true;
+      } else {
+        const gd = new GoresDriver(col, source, { killCooldownTicks: KILL_COOLDOWN_TICKS });
+        driver = gd;
+        this.raceGiven = false;
+        this.raceGivenComplete = false;
+        this.raceKey = `race|${mapKeyOf(col, null)}`;
+        this.raceAnalyzeMs = 0;
+        const fromDemo = demo !== null && this.raceDemoTape(demo, col, source, gd);
+        if (!fromDemo) {
+          this.raceFastHost ??= new RaceFastHost();
+          this.raceFastHost.start(col, { cutTiles: 160, timeLimitMs: 4000, maxExpansions: 200_000 });
+        }
+      }
       this.race = driver;
       this.raceSolved = { col, source, driver };
-      this.raceKey = `race|${mapKeyOf(col, null)}`;
-      this.raceGiven = false;
-      this.raceGivenComplete = false;
-      this.raceAnalyzeMs = 0;
-      this.raceFastHost ??= new RaceFastHost();
-      this.raceFastHost.start(col, { cutTiles: 160, timeLimitMs: 4000, maxExpansions: 200_000 });
 
       const a = raceMapAnalysis(col);
       this.emit("event", t("гонка: карта {w}×{h}: старт {start} ({sb}), финиш {finish} ({fb}), КП {cps}, фриз {freeze}, стены {solid}, телепорты {tele}", {
@@ -3415,27 +3505,29 @@ export class DdnetBot {
     const solved = this.raceSolved;
     if (solved === null) return;
     const driver = solved.driver;
-    const host = this.raceFastHost;
-    const status = host !== null ? host.status() : null;
-    if (status !== null && status.state === "solving" && Date.now() - this.raceAnalyzeMs >= 2000) {
-      this.raceAnalyzeMs = Date.now();
-      this.log(`race: fast path search: ${status.done}/${status.total} sections, ${status.note}`);
-    }
-    const found = host !== null ? host.solution() : null;
-    if (found !== null && found.sections.length > 0 && (!this.raceGiven || (found.complete && !this.raceGivenComplete))) {
-      driver.setSolution(found);
-      this.raceGiven = true;
-      this.raceGivenComplete = found.complete;
-      const secs = found.sections.length;
-      const seconds = (found.bestTicks / 50).toFixed(1);
-      this.emit("event", found.complete
-        ? t("гонка: путь разобран целиком: {sec} участков, {s} с, бегу", { sec: secs, s: seconds })
-        : t("гонка: путь разобран частично: {sec} участков, {s} с, бегу по известной части", { sec: secs, s: seconds }));
-    }
-    if (!this.raceGiven) {
-      if (status?.state === "failed") this.emit("event", t("гонка: солвер не нашёл путь, бот ждёт"));
-      this.idle();
-      return;
+    if (driver instanceof GoresDriver) {
+      const host = this.raceFastHost;
+      const status = host !== null ? host.status() : null;
+      if (status !== null && status.state === "solving" && Date.now() - this.raceAnalyzeMs >= 2000) {
+        this.raceAnalyzeMs = Date.now();
+        this.log(`race: fast path search: ${status.done}/${status.total} sections, ${status.note}`);
+      }
+      const found = host !== null ? host.solution() : null;
+      if (found !== null && found.sections.length > 0 && (!this.raceGiven || (found.complete && !this.raceGivenComplete))) {
+        driver.setSolution(found);
+        this.raceGiven = true;
+        this.raceGivenComplete = found.complete;
+        const secs = found.sections.length;
+        const seconds = (found.bestTicks / 50).toFixed(1);
+        this.emit("event", found.complete
+          ? t("гонка: путь разобран целиком: {sec} участков, {s} с, бегу", { sec: secs, s: seconds })
+          : t("гонка: путь разобран частично: {sec} участков, {s} с, бегу по известной части", { sec: secs, s: seconds }));
+      }
+      if (!this.raceGiven) {
+        if (status?.state === "failed") this.emit("event", t("гонка: солвер не нашёл путь, бот ждёт"));
+        this.idle();
+        return;
+      }
     }
 
     const was = driver.phase;
@@ -8731,6 +8823,13 @@ export class DdnetBot {
   }
 
   private maybeUnstick(client: TwClient, self: TeeState): void {
+    // In race mode the route can deliberately cross freeze. The race driver
+    // owns stall/kill decisions; the fight-mode unstick must not kill us there.
+    if (this.raceOn) {
+      this.stuckAnchor = null;
+      this.frozenSince = -1;
+      return;
+    }
 
     const STUCK_FROZEN_TICKS = 9 * 50;
     const STUCK_WEDGED_TICKS = 4 * 50;

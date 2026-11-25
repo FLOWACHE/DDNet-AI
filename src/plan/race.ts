@@ -219,6 +219,9 @@ export type RaceDriverOpts = {
   pumpMs: number;
   pumpYields: number;
 
+  /** A recorded, known-good path (tile waypoints) to follow instead of searching. */
+  demoPath?: { tx: number; ty: number }[];
+
   now?: () => number;
   search?: Partial<PathSearchOpts>;
   segment?: Partial<SegmentOpts>;
@@ -618,10 +621,14 @@ export class RaceDriver {
     } else this.deepSince = -1;
     // Deep freeze alone is not a dead end: a tee can still be moving through
     // it or be carried by a teleporter. Only kill when it is also stuck.
-    if (this.deepSince >= 0 && tick - this.deepSince >= this.o.deepKillTicks && ((self.frozen && onFreeze && atRest) || tick - this.bestTick >= this.o.stallKillTicks)) return { why: "deep-frozen", at };
-    if (this.restSince >= 0 && tick - this.restSince >= this.o.restKillTicks) return { why: `lying in the freeze at (${here.tx},${here.ty})`, at };
-    if (this.frozenSince >= 0 && tick - this.frozenSince >= this.o.frozenKillTicks) return { why: `frozen for ${tick - this.frozenSince} ticks`, at };
-    if (tick - this.bestTick >= this.o.stallKillTicks) return { why: `no progress for ${tick - this.bestTick} ticks at (${here.tx},${here.ty})`, at };
+    if (this.o.demoPath === undefined) {
+      // On a recorded route, freeze is part of the path: the human crossed it
+      // on purpose. Do not /kill just for being in or lying in freeze there.
+      if (this.deepSince >= 0 && tick - this.deepSince >= this.o.deepKillTicks && ((self.frozen && onFreeze && atRest) || tick - this.bestTick >= this.o.stallKillTicks)) return { why: "deep-frozen", at };
+      if (this.restSince >= 0 && tick - this.restSince >= this.o.restKillTicks) return { why: `lying in the freeze at (${here.tx},${here.ty})`, at };
+      if (this.frozenSince >= 0 && tick - this.frozenSince >= this.o.frozenKillTicks) return { why: `frozen for ${tick - this.frozenSince} ticks`, at };
+    }
+    if (this.o.demoPath === undefined && tick - this.bestTick >= this.o.stallKillTicks) return { why: `no progress for ${tick - this.bestTick} ticks at (${here.tx},${here.ty})`, at };
     if (this.legFails > this.o.maxLegFails) return { why: `${this.legFails} walks failed on leg ${this.legs}`, at };
     return null;
   }
@@ -714,6 +721,28 @@ export class RaceDriver {
     }
   }
 
+  private demoWaypoint(here: { tx: number; ty: number }, span: number): { tx: number; ty: number } | null {
+    const path = this.o.demoPath;
+    if (path === undefined || path.length < 2) return null;
+    let best = 0;
+    let bd = Infinity;
+    for (let i = 0; i < path.length; i++) {
+      const d = Math.abs(path[i].tx - here.tx) + Math.abs(path[i].ty - here.ty);
+      if (d < bd) bd = d, best = i;
+    }
+    let len = 0;
+    let px = path[best].tx;
+    let py = path[best].ty;
+    for (let i = best + 1; i < path.length; i++) {
+      const t = path[i];
+      len += Math.max(Math.abs(t.tx - px), Math.abs(t.ty - py));
+      px = t.tx;
+      py = t.ty;
+      if (len >= span) return t;
+    }
+    return path[path.length - 1] ?? null;
+  }
+
   private *makeLegJob(pos: Vec2, legFails: number): Job<LegPlan | null> {
     const boxes = this.phase === "start" ? this.lines.startBoxes : this.lines.finishBoxes;
     if (boxes.length === 0) return null;
@@ -725,7 +754,14 @@ export class RaceDriver {
     let goal: PathGoal = this.lineGoal(boxes);
     let to: { tx: number; ty: number } | null = null;
     let tele = false;
-    if (span > 0) {
+    if (span > 0 && this.o.demoPath !== undefined) {
+      const dw = this.demoWaypoint(here, span);
+      if (dw !== null) {
+        to = dw;
+        goal = { zone: [{ x0: dw.tx - 1, y0: dw.ty - 1, x1: dw.tx + 1, y1: dw.ty + 1 }], spots: [dw], stop: false, thaw: true };
+      }
+    }
+    if (span > 0 && to === null) {
       let route: { steps: RouteStep[]; cost: number } | null = null;
       const cands = boxes
         .map((b) => ({ x: ((b.x0 + b.x1) / 2) * TILE + TILE / 2, y: Math.round((b.y0 + b.y1) / 2) * TILE + TILE / 2 }))

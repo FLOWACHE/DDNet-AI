@@ -539,6 +539,8 @@ export const EN: Record<string, string> = {
   "гонка: путь разобран целиком: {sec} участков, {s} с, бегу": "race: whole path solved: {sec} sections, {s} s, running",
   "гонка: путь разобран частично: {sec} участков, {s} с, бегу по известной части": "race: partial path solved: {sec} sections, {s} s, running the known part",
   "гонка: солвер не нашёл путь, бот ждёт": "race: the solver found no path, the bot waits",
+  "гонка: демо загружено: {n} тиков из {file}, повторяю записанный проход": "race: demo loaded: {n} ticks from {file}, replaying the recorded run",
+  "гонка: демо загружено: {file}, иду по записанному пути": "race: demo loaded: {file}, following the recorded path",
   "обновления выключены: включить можно DDNET_AI_UPDATE=on или --update": "updates are off: enable with DDNET_AI_UPDATE=on or --update",
   "способы играть, как в окне (race: гонка от старта до финиша, gores: проход gores-карты по готовому маршруту, тест)": "ways to play, as in the window (race: a run from the start to the finish, gores: a gores map along a route solved ahead (a test feature))",
   "способы играть, как в окне (gores: проход gores-карты по готовому маршруту, тестовая)": "ways to play, as in the window (gores: a gores map along a route solved ahead, a test feature)",
