@@ -108,6 +108,27 @@ test("respawn resets the run clock and the current leg", () => {
   assert.equal(d.leg.fails, 0);
 });
 
+test("a linear map: cross the start, reach the finish, log the time and repeat", () => {
+  const col = makeMap({ width: 16, height: 4, game: [[1, 1, 33], [14, 1, 34]] });
+  const d = driver(col, { repeatAfterTicks: 10, killCooldownTicks: 1 });
+  let tick = 1;
+  for (let x = 1; x <= 14; x++) {
+    const r = d.step(tee(at(x, 1)), tick++, 0);
+    assert.equal(r.kill, false, `unexpected /kill at x=${x}`);
+  }
+  assert.equal(d.clock.state, "finished");
+  assert.equal(d.phase, "done");
+  assert.equal(d.clock.time, 12);
+  assert.ok(d.takeNotes().some((n) => /finished in/.test(n)), "the run time is written to the log");
+
+  tick += 10;
+  const repeat = d.step(tee(at(14, 1)), tick++, 0);
+  assert.equal(repeat.kill, true, "a finished run is restarted with /kill");
+  d.step({ ...tee(at(14, 1)), alive: false }, tick++, 0);
+  d.step(tee(at(1, 1)), tick++, 0);
+  assert.equal(d.clock.state, "started", "the next run starts cleanly at the start line");
+});
+
 test("deep freeze while moving does not cause a premature /kill", () => {
   const col = makeMap({ game: [[1, 1, 33], [5, 5, 34]] });
   const d = driver(col, { deepKillTicks: 25, stallKillTicks: 1000 });
