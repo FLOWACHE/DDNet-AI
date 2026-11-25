@@ -3,10 +3,10 @@
    Copyright (C) 2007-2014 Magnus Auvinen (Teeworlds); Copyright (C) DDRace and
    DDNet contributors. This is an altered version, not the original software. */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "../env/paths.ts";
 import { crc32, deflate, deflateSync } from "node:zlib";
 import { DataFileReader } from "../map/datafile.ts";
 
@@ -230,7 +230,7 @@ function readerFor(bytes: Uint8Array): DataFileReader {
     if (!(err instanceof TypeError)) throw err;
   }
 
-  const dir = mkdtempSync(join(tmpdir(), "ddnet-ai-scene-"));
+  const dir = tempDir("ddnet-ai-scene-");
   try {
     const tmp = join(dir, "m.map");
     writeFileSync(tmp, buf);

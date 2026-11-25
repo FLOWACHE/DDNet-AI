@@ -38,6 +38,7 @@ const { shouldNoticeCrash } = require("./lib/notice.js");
 const settingsIo = require("./lib/settingsIo.js");
 const { writeZip } = require("./lib/zip.js");
 const { codeStamp, bootRunsLive, relaunchArgs } = require("./lib/codeStamp.js");
+const dataPaths = require("./lib/dataPaths.js");
 const I18N = require("./ui/i18n.js");
 
 const APP_DIR = __dirname;
@@ -51,6 +52,9 @@ const MINI_DEFAULT = { width: 440, height: 300 };
 const APP_ID = "ddnet-ai.app";
 
 const argv = process.argv.slice(1);
+const PROJECT_DIR = dataPaths.repoDirOf(path.dirname(APP_DIR));
+const DATA = dataPaths.pathsOf({ repoDir: PROJECT_DIR, argv });
+if (!process.env.DDNET_AI_USER_DATA) process.env.DDNET_AI_USER_DATA = DATA.userData;
 const hasFlag = (f) => argv.includes(f);
 const argValue = (f) => {
   const i = argv.indexOf(f);
@@ -74,14 +78,14 @@ const APP_CODE_AT_START = appCodeStamp();
 
 const OFFLINE = process.env.DDNET_AI_APP_OFFLINE === "1" || hasFlag("--offline");
 
-const SHOT_DIR = process.env.DDNET_AI_SHOTS || argValue("--screenshot-dir");
+const SHOT_DIR = process.env.DDNET_AI_SHOTS || argValue("--screenshot-dir") || path.join(DATA.reports, "shots");
 const START_HIDDEN = hasFlag("--hidden");
 
 const PLAY_NOW = hasFlag("--play");
 
 const START_COUNTDOWN_S = 10;
 
-if (process.env.DDNET_AI_USER_DATA) app.setPath("userData", path.resolve(process.env.DDNET_AI_USER_DATA));
+app.setPath("userData", path.resolve(process.env.DDNET_AI_USER_DATA));
 app.setName("DDNet AI");
 
 {
@@ -348,7 +352,14 @@ function main() {
   }
 
   function resolveRuntime() {
-    const env = { ...process.env, DDNET_AI_LANG: lang };
+    const env = {
+      ...process.env,
+      DDNET_AI_LANG: lang,
+      DDNET_AI_HOME: DATA.data,
+      DDNET_AI_DATA_DIR: DATA.data,
+      DDNET_AI_CACHE_DIR: DATA.cache,
+      DDNET_AI_USER_DATA: DATA.userData,
+    };
     delete env.ELECTRON_RUN_AS_NODE;
     const embedded = () => ({
       kind: "embedded",
@@ -382,6 +393,7 @@ function main() {
       const r = path.resolve(override);
       return isProjectRoot(r, exists) ? r : null;
     }
+    if (isProjectRoot(PROJECT_DIR, exists)) return PROJECT_DIR;
     const found = findProjectRoot([app.getAppPath(), path.dirname(process.execPath), process.cwd()], exists);
     if (found !== null) return found;
     const saved = prefs.get("projectRoot");
@@ -904,7 +916,7 @@ function main() {
     const choice = await dialog.showMessageBox(parent, {
       type: "question",
       title: t("Отчёт об ошибке"),
-      message: t("Собрать записи бота в один zip на рабочем столе?"),
+      message: t("Собрать записи бота в один zip в папке data/reports?"),
       detail: t("Войдут записи (runs/clips), итоги A/B, память фриза, отчёт о падении, лог окна и настройки без пароля. Ключ обновлений не попадёт."),
       buttons: [t("Добавить демки..."), t("Без демок"), t("Отмена")],
       checkboxLabel: t("Скрыть IP-адреса"),
@@ -927,7 +939,8 @@ function main() {
     }
     const logText = logBuf.toArray().map((l) => `${new Date(l.t).toISOString()} [${l.s}] ${l.text}`).join("\n");
     const plan = planArchive(root, { demos, logText, settings: settingsLib.readSettings(root), hideIps: choice.checkboxChecked !== false });
-    const out = freeArchivePath(app.getPath("desktop"), archiveName(new Date()));
+    fs.mkdirSync(DATA.reports, { recursive: true });
+    const out = freeArchivePath(DATA.reports, archiveName(new Date()));
     toast(t("Собираю архив: {n} файлов...", { n: plan.entries.length }));
     try {
       let last = 0;
@@ -942,7 +955,7 @@ function main() {
       addLog("app", t("архив готов: {file} ({n} файлов, {mb} МБ)", { file: out, n: res.files, mb }));
       for (const s of plan.skipped) addLog("app", tr(s));
       for (const name of res.skipped) addLog("app", t("не вошёл в архив: {name} (бот удалил его, пока архив собирался)", { name }));
-      toast(t("Архив на рабочем столе: {file} ({mb} МБ)", { file: path.basename(out), mb }), "ok");
+      toast(t("Архив в папке data/reports: {file} ({mb} МБ)", { file: path.basename(out), mb }), "ok");
       shell.showItemInFolder(out);
     } catch (err) {
       toast(t("Архив не собрался: {err}", { err: tr(err.message) }), "error");
@@ -998,9 +1011,10 @@ function main() {
       return;
     }
     const parent = win !== null && win.isVisible() ? win : undefined;
+    fs.mkdirSync(DATA.reports, { recursive: true });
     const r = await dialog.showSaveDialog(parent, {
       title: t("Куда сохранить настройки"),
-      defaultPath: path.join(app.getPath("desktop"), "ddnet-ai-settings.json"),
+      defaultPath: path.join(DATA.reports, "ddnet-ai-settings.json"),
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (r.canceled || !r.filePath) return;

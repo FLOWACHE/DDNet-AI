@@ -1,5 +1,8 @@
 node_modules/
 runs/
+data/
+cache/
+userdata/
 *.log
 vendor/
 maps/

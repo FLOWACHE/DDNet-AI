@@ -179,7 +179,7 @@
     "Та же страница бота, во вкладке": "The same bot page, in a browser tab",
     "Файлы": "Files",
     "Собрать отчёт об ошибке": "Collect a bug report",
-    "Записи, A/B, память, лог и демки в один zip на рабочий стол": "Clips, A/B, memory, log and demos in one zip on the desktop",
+    "Записи, A/B, память, лог и демки в один zip в папке data/reports": "Clips, A/B, memory, log and demos in one zip in data/reports",
     "Папка записей": "Clips folder",
     "Папка бота": "Bot folder",
     "Ярлык на рабочий стол": "Desktop shortcut",
@@ -293,7 +293,7 @@
     "Остановить тот и играть отсюда": "Stop that one and play from here",
     "Запустить второго": "Start a second one",
     "Отчёт об ошибке": "Bug report",
-    "Собрать записи бота в один zip на рабочем столе?": "Collect the bot's records into one zip on the desktop?",
+    "Собрать записи бота в один zip в папке data/reports?": "Collect the bot's records into one zip in data/reports?",
     "Войдут записи (runs/clips), итоги A/B, память фриза, отчёт о падении, лог окна и настройки без пароля. Ключ обновлений не попадёт.":
       "It takes the clips (runs/clips), the A/B results, the freeze memory, the crash report, the window's log and the settings without the password. The update key is left out.",
     "Добавить демки...": "Add demos...",
@@ -302,7 +302,7 @@
     "Какие демки добавить": "Which demos to add",
     "Демки DDNet": "DDNet demos",
     "Собираю архив: {n} файлов...": "Collecting the archive: {n} files...",
-    "Архив на рабочем столе: {file} ({mb} МБ)": "The archive is on the desktop: {file} ({mb} MB)",
+    "Архив в папке data/reports: {file} ({mb} МБ)": "The archive is in data/reports: {file} ({mb} MB)",
     "Архив не собрался: {err}": "The archive failed: {err}",
 
     "ярлык в меню Пуск не создался: уведомления могут не показываться": "the Start menu shortcut wasn't created: notifications may not show",

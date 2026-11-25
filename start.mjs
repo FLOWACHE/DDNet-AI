@@ -1,12 +1,20 @@
 import nodeModule from "node:module";
-import os from "node:os";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { chmodSync, existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import dataPaths from "./app/lib/dataPaths.js";
+
+// HERE/code is read-only source. All mutable state goes into DATA.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const paths = dataPaths.pathsOf({ repoDir: HERE, argv: process.argv.slice(2) });
+process.env.DDNET_AI_DATA_DIR = paths.data;
+process.env.DDNET_AI_CACHE_DIR = paths.cache;
+for (const dir of [paths.data, paths.runs, paths.routes, paths.gores, paths.dummy, paths.clips, paths.memory, paths.reports, paths.cache, paths.userData]) {
+  mkdirSync(dir, { recursive: true });
+}
 
 const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
 if (nodeMajor < 24) {
@@ -21,10 +29,7 @@ if (nodeMajor < 24) {
 }
 
 try {
-  const xdg = process.env.XDG_CACHE_HOME;
-  const cacheRoot =
-    process.platform === "win32" && process.env.LOCALAPPDATA ? process.env.LOCALAPPDATA : typeof xdg === "string" && path.isAbsolute(xdg) ? xdg : path.join(os.homedir(), ".cache");
-  nodeModule.enableCompileCache?.(path.join(cacheRoot, "ddnet-ai-node"));
+  nodeModule.enableCompileCache?.(path.join(paths.cache, "ddnet-ai-node"));
 } catch {
 
 }
@@ -47,7 +52,7 @@ async function findPolicies() {
     parsed && parsed.shape && parsed.params !== undefined &&
     parsed.shape.inputs === OBS_SIZE && parsed.shape.outputs === ACTION_SIZE;
   const found = [];
-  for (const dir of [HERE, path.join(HERE, "runs")]) {
+  for (const dir of [HERE, paths.runs]) {
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir)) {
       const full = path.join(dir, entry);
@@ -110,7 +115,7 @@ async function main() {
     return answer;
   };
 
-  const settingsFile = path.join(HERE, "settings.json");
+  const settingsFile = paths.settings;
 
   const DAMAGED = Symbol("damaged");
   const readSettingsFile = () => {
@@ -158,9 +163,9 @@ ${line(56)}
   const serverText = await ask({ key: "server", text: t("Сервер (ip:порт или auto)") }, "auto");
 
   const { isAuto, fetchMasterOrCache, pickBlockServer, readAvoid } = await import("./src/bot/serverPick.ts");
-  const avoidFile = path.join(HERE, "runs", "server-avoid.json");
+  const avoidFile = paths.avoid;
 
-  const masterCache = path.join(HERE, "runs", "master-cache.json");
+  const masterCache = paths.masterCache;
   const autoServer = isAuto(serverText);
   let address = serverText;
   if (autoServer) {
@@ -274,7 +279,7 @@ ${line(56)}
   const { DdnetBot } = await import("./src/bot/bot.ts");
 
   const { installCrashReport, noteCrashLine } = await import("./src/bot/crashReport.ts");
-  installCrashReport(path.join(HERE, "runs", "last-crash.txt"));
+  installCrashReport(paths.crash);
   const { PLANNER_BOLD } = await import("./src/bot/bot.ts");
   const { RecurrentPolicy } = await import("./src/nn/gru.ts");
   const { lowCpuWanted, strongWanted } = await import("./src/bot/cpuLoad.ts");
@@ -336,6 +341,7 @@ ${line(56)}
   }
 
   let opponentDirNet;
+  // opponent.json is a shipped read-only network, part of the code assets.
   const oppFile = path.join(HERE, "opponent.json");
   if (existsSync(oppFile)) {
     try {
@@ -374,9 +380,13 @@ ${line(56)}
     planner: usePlanner,
     plannerCfg: bold ? PLANNER_BOLD : undefined,
     opponentDirNet,
-    mapDir: path.join(HERE, "maps"),
+    mapDir: paths.maps,
     settingsFile,
-    routesDir: path.join(HERE, "runs", "routes"),
+    relationsFile: paths.relations,
+    clipDir: paths.clips,
+    memoryDir: paths.memory,
+    routesDir: paths.routes,
+    goresDir: paths.gores,
     lowCpu,
     strong,
     humanlike,
@@ -431,7 +441,6 @@ ${line(56)}
 
     let firstClan = clan;
     let firstSkin = skin;
-    const dir = path.join(HERE, "runs", "dummy");
     const scriptedOnly = !policyFile && !usePlanner;
 
     const { DummyThread, listUpdates, shareableLists, routeTarget, dummyStatusView } = await import("./src/bot/dummyThread.ts");
@@ -453,10 +462,12 @@ ${line(56)}
         scripted: scriptedOnly,
         planner: !scriptedOnly,
         plannerCfg: bold ? PLANNER_BOLD : undefined,
-        mapDir: path.join(HERE, "maps"),
-        relationsFile: path.join(dir, "relations.json"),
-        memoryDir: path.join(dir, "memory"),
-        clipDir: path.join(dir, "clips"),
+        mapDir: paths.maps,
+        settingsFile: paths.settings,
+        routesDir: paths.routes,
+        relationsFile: paths.relations,
+        memoryDir: paths.memory,
+        clipDir: paths.clips,
 
         lowCpu,
         strong,
@@ -476,7 +487,7 @@ ${line(56)}
         duoCoop,
         gores,
 
-        goresDir: path.join(HERE, "runs", "routes", "gores"),
+        goresDir: paths.gores,
 
         goresPolish: false,
         announce,
@@ -522,7 +533,7 @@ ${line(56)}
 
     const { bothBotsDuels, readDuelFile } = await import("./src/bot/bot.ts");
     const ownDuels = bot.duelList.bind(bot);
-    bot.duelList = () => bothBotsDuels(ownDuels(), name, readDuelFile(path.join(dir, "duels.json")), dummyName);
+    bot.duelList = () => bothBotsDuels(ownDuels(), name, readDuelFile(paths.duels), dummyName);
     const own = bot.handleConsole.bind(bot);
     bot.handleConsole = (lineIn) => {
 
@@ -771,7 +782,7 @@ main().catch(async (err) => {
 
   try {
     const { writeCrashReport } = await import("./src/bot/crashReport.ts");
-    writeCrashReport(path.join(HERE, "runs", "last-crash.txt"), err, "main");
+    writeCrashReport(paths.crash, err, "main");
   } catch {
 
   }

@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { t } from "../i18n.ts";
 
@@ -225,7 +224,9 @@ function unmetDependencies(root: string, staged: string): string[] {
 
 export async function apply(root: string, sha: string, token = ""): Promise<string[]> {
   const ch = channelOf(token);
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ddnet-ai-upd-"));
+  const cache = path.join(root, "cache");
+  fs.mkdirSync(cache, { recursive: true });
+  const tmp = fs.mkdtempSync(path.join(cache, "ddnet-ai-upd-"));
   try {
 
     const url = PLAIN_GIT && ch.token === "" ? `${CODELOAD}/${ch.repo}/tar.gz/${sha}` : `${API}/repos/${ch.repo}/tarball/${sha}`;

@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { tempDir } from "../env/paths.ts";
 import { crc32 } from "node:zlib";
 import type { Vec2 } from "../core/vmath.ts";
 import { vnormalize } from "../core/vmath.ts";
@@ -414,7 +414,7 @@ export function mapCollisionFromClient(client: MapClientLike, fallbackMapDir: st
 
   if (map?.mapBuffer && map.mapBuffer.length > 0 && !map.downloading) {
 
-    const dir = mkdtempSync(join(tmpdir(), "ddnet-ai-map-"));
+    const dir = tempDir("ddnet-ai-map-");
     try {
       const tmp = join(dir, `${name ?? "map"}.map`);
       writeFileSync(tmp, map.mapBuffer);

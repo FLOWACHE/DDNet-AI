@@ -4,6 +4,8 @@ const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
 
+const dataPaths = require("./dataPaths.js");
+
 const DIRS = ["runs/clips", "runs/memory"];
 const CRASH_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 
@@ -59,28 +61,36 @@ function maskIps(text) {
 }
 
 function planArchive(root, { demos = [], logText = "", settings = null, hideIps = false, fsApi = fs } = {}) {
+  const paths = dataPaths.pathsOf({ repoDir: root });
   const entries = [];
   const skipped = [];
   for (const rel of DIRS) {
+    const dir = path.join(paths.data, rel);
     const found = [];
-    walk(path.join(root, rel), fsApi, found);
+    walk(dir, fsApi, found);
     found.sort((a, b) => b.mtime - a.mtime);
 
     for (const f of found.slice(0, MAX_FILES_PER_DIR)) {
-      entries.push({ name: path.relative(root, f.full).split(path.sep).join("/"), file: f.full, optional: true });
+      entries.push({ name: `${rel}/${path.relative(dir, f.full).split(path.sep).join("/")}`, file: f.full, optional: true });
     }
     if (found.length > MAX_FILES_PER_DIR) skipped.push(`${rel}: ещё ${found.length - MAX_FILES_PER_DIR} старых файлов не взято`);
   }
-  for (const rel of FILES) {
-    const full = path.join(root, rel);
+  const files = new Map([
+    ["runs/ab.json", paths.ab],
+    ["runs/ab.prev.json", path.join(paths.runs, "ab.prev.json")],
+    ["runs/dummy/ab.json", path.join(paths.dummy, "ab.json")],
+    ["runs/last-crash.txt", paths.crash],
+    [".version", paths.version],
+  ]);
+  for (const [name, full] of files) {
     try {
       const st = fsApi.statSync(full);
       if (!st.isFile()) continue;
 
-      if (rel === "runs/last-crash.txt" && Date.now() - st.mtimeMs > CRASH_MAX_AGE_MS) continue;
+      if (name === "runs/last-crash.txt" && Date.now() - st.mtimeMs > CRASH_MAX_AGE_MS) continue;
 
-      if (hideIps && rel === "runs/last-crash.txt") entries.push({ name: rel, data: maskIps(fsApi.readFileSync(full, "utf8")) });
-      else entries.push({ name: rel, file: full });
+      if (hideIps && name === "runs/last-crash.txt") entries.push({ name, data: maskIps(fsApi.readFileSync(full, "utf8")) });
+      else entries.push({ name, file: full });
     } catch {
 
     }

@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -63,12 +62,7 @@ const stage = INSTALL ? path.join(HERE, `${P.dir}.partial-${process.pid}`) : pat
 
 const STAMP = ".installed";
 const LOCK = path.join(HERE, `${P.dir}.lock`);
-const cacheDir = path.join(
-  process.env.ELECTRON_CACHE ??
-    (process.platform === "win32" && process.env.LOCALAPPDATA
-      ? path.join(process.env.LOCALAPPDATA, "ddnet-ai-electron")
-      : path.join(os.homedir(), ".cache", "ddnet-ai-electron")),
-);
+const cacheDir = path.join(process.env.ELECTRON_CACHE ?? path.join(HERE, "cache", "electron"));
 const EXE = P.exe;
 
 async function download(url) {

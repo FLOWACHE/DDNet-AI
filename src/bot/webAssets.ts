@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { t } from "../i18n.ts";
+import { DATA_DIR } from "../env/paths.ts";
 
 export const SKIN_URLS = ["https://skins.ddnet.org/skin/", "https://skins.ddnet.org/skin/community/"];
-export const SKIN_CACHE_DIR = join("runs", "skincache");
+const ASSET_RUNS = join(DATA_DIR, "runs");
+export const SKIN_CACHE_DIR = join(ASSET_RUNS, "skincache");
 const MAX_SKIN_BYTES = 4 * 1024 * 1024;
 
 export type Env = { [k: string]: string | undefined };
@@ -111,7 +113,7 @@ export function chosenAssets(userDirs: string[], read: (file: string) => string 
   return out;
 }
 
-export const DATA_CACHE_DIR = join("runs", "ddnet-data");
+export const DATA_CACHE_DIR = join(ASSET_RUNS, "ddnet-data");
 export const DATA_URL = "https://raw.githubusercontent.com/ddnet/ddnet/20.0/data/";
 const DATA_FILE_OK =
   /^(?:(?:game|emoticons|extras|hud|arrow|particles)\.png|editor\/(?:entities_clear\/ddnet|speed_arrow)\.png|fonts\/DejaVuSans\.ttf|mapres\/[A-Za-z0-9_][A-Za-z0-9_ .-]{0,63}\.png|audio\/[a-z0-9_-]{1,48}\.wv)$/;

@@ -5,6 +5,7 @@ const net = require("node:net");
 const path = require("node:path");
 
 const LOGIC = require("../ui/logic.js");
+const dataPaths = require("./dataPaths.js");
 const PROXY = require("./proxy.js");
 
 const SETTINGS_FILE = "settings.json";
@@ -25,7 +26,7 @@ const DEFAULTS = {
 };
 
 function settingsPath(root) {
-  return path.join(root, SETTINGS_FILE);
+  return dataPaths.pathsOf({ repoDir: root }).settings;
 }
 
 function readSettings(root) {
@@ -145,6 +146,7 @@ function writeSettings(root, value) {
   for (const k of [...SWITCH_KEYS, "dummyName", "dummyClan", "dummySkin", "pathfind", "proxy", "dummyProxy"]) if (value[k] !== undefined) out[k] = value[k];
   const file = settingsPath(root);
   const tmp = file + ".tmp";
+  fs.mkdirSync(path.dirname(file), { recursive: true });
 
   const fd = fs.openSync(tmp, "w", 0o600);
   try {
