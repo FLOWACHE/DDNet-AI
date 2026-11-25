@@ -694,8 +694,14 @@ ${line(56)}
     }
   }
 
+  // Updates are opt-in for this fork. Neither the env var nor settings.json
+  // can silently replace our code with the upstream (or any other) tree.
+  const onWord = (v) => ["on", "1", "true", "yes"].includes(String(v ?? "").trim().toLowerCase());
+  const updateFlag = flags.update === undefined ? undefined : !["off", "0", "false", "no"].includes(String(flags.update).trim().toLowerCase());
+  const updateEnabled = flags["no-update"] === undefined && (updateFlag ?? (onWord(process.env.DDNET_AI_UPDATE) || onWord(saved.update)));
   let stopAutoUpdate = null;
-  if (flags["no-update"] === undefined) {
+  bot.checkUpdate = async () => t("обновления выключены: включить можно DDNET_AI_UPDATE=on или --update");
+  if (updateEnabled) {
     try {
       const { startAutoUpdate } = await import("./src/bot/autoUpdate.ts");
       const updater = startAutoUpdate(
@@ -709,6 +715,7 @@ ${line(56)}
         },
 
         () => void stop(75),
+        { enabled: true },
       );
       stopAutoUpdate = updater.stop;
 

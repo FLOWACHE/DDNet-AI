@@ -534,6 +534,7 @@ export const EN: Record<string, string> = {
   "гонка: бежит от старта к финишу": "race: running from the start to the finish",
   "гонка: финиш за {s} с": "race: finished in {s} s",
   "гонка: нет пути, бот ждёт": "race: no way found, the bot waits",
+  "обновления выключены: включить можно DDNET_AI_UPDATE=on или --update": "updates are off: enable with DDNET_AI_UPDATE=on or --update",
   "способы играть, как в окне (race: гонка от старта до финиша, gores: проход gores-карты по готовому маршруту, тест)": "ways to play, as in the window (race: a run from the start to the finish, gores: a gores map along a route solved ahead (a test feature))",
   "способы играть, как в окне (gores: проход gores-карты по готовому маршруту, тестовая)": "ways to play, as in the window (gores: a gores map along a route solved ahead, a test feature)",
   "fight (по умолчанию), passive (не вступать в бой), hold (стоять), race (гонка) или gores (gores-карта, тестовая)": "fight (default), passive (do not engage), hold (stand still), race (a run) or gores (a gores map, a test feature)",

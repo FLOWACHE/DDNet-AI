@@ -3,10 +3,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { t } from "../i18n.ts";
 
-const PUBLIC_REPO = "Wranked1/DDNet-AI";
-const PRIVATE_REPO = "Wranked1/AiDDNet";
+// This is a fork. Never pull the upstream tree over our own code.
+const PUBLIC_REPO = process.env.DDNET_AI_UPDATE_REPO ?? "FLOWACHE/DDNet-AI";
+const PRIVATE_REPO = "FLOWACHE/DDNet-AI-private";
 const TOKEN_FILE = "update-token.txt";
 const BRANCH = "main";
+
+const UPDATE_ENV = (process.env.DDNET_AI_UPDATE ?? "off").trim().toLowerCase();
+export const UPDATE_ENABLED = ["on", "1", "true", "yes"].includes(UPDATE_ENV);
 
 const API = process.env.DDNET_AI_UPDATE_API ?? "https://api.github.com";
 
@@ -51,7 +55,24 @@ const TAKE = [
   "README.en.md",
 ];
 
-const NEVER_TAKE = new Set(["runs", "node_modules", "settings.json", "update-token.txt", ".version", ".git"]);
+export const NEVER_TAKE = new Set([
+  "runs",
+  "node_modules",
+  "settings.json",
+  "update-token.txt",
+  ".version",
+  ".git",
+  "data",
+  "userdata",
+  "cache",
+  "tests",
+]);
+
+export function isProtectedName(name: string): boolean {
+  const top = name.split(/[\\/]/)[0];
+  return NEVER_TAKE.has(top);
+}
+
 export function takeListOf(tree: string): string[] {
   let text: string;
   try {
@@ -67,6 +88,7 @@ export function takeListOf(tree: string): string[] {
 }
 
 export function copyChanged(from: string, to: string, changed?: string[], backup?: Array<{ to: string; old: Buffer | null }>): void {
+  if (isProtectedName(path.basename(to))) throw new Error(`refusing to overwrite a protected path: ${to}`);
   const st = fs.statSync(from);
   if (st.isDirectory()) {
     fs.mkdirSync(to, { recursive: true });
@@ -102,8 +124,11 @@ export function needsRestart(changed: string[], root: string): boolean {
 
 export type UpdateEvent = { kind: "checking" | "current" | "found" | "applied" | "failed"; text: string; sha?: string };
 
+// The stamp is mutable state: keep it in data/runs so .version in the code
+// tree is never written by the updater.
 function stampFile(root: string): string {
-  return path.join(root, ".version");
+  const data = process.env.DDNET_AI_DATA_DIR || path.join(root, "data");
+  return path.join(data, "runs", "update-stamp");
 }
 
 type Channel = { repo: string; token: string };
@@ -247,17 +272,20 @@ export async function apply(root: string, sha: string, token = ""): Promise<stri
     }
     const changed: string[] = [];
     const backup: Array<{ to: string; old: Buffer | null }> = [];
+    const stamp = stampFile(root);
+    fs.mkdirSync(path.dirname(stamp), { recursive: true });
     const oldStamp = currentVersion(root);
-    fs.rmSync(stampFile(root), { force: true });
+    fs.rmSync(stamp, { force: true });
     try {
 
-      for (const name of new Set([...TAKE, ...takeListOf(path.join(tmp, inner))])) {
+      const names = [...new Set([...TAKE, ...takeListOf(path.join(tmp, inner))])].filter((name) => !isProtectedName(name));
+      for (const name of names) {
         const from = path.join(tmp, inner, name);
         if (!fs.existsSync(from)) continue;
         copyChanged(from, path.join(root, name), changed, backup);
       }
 
-      fs.writeFileSync(stampFile(root), sha);
+      fs.writeFileSync(stamp, sha);
     } catch (err) {
       let restoredAll = true;
       for (let i = backup.length - 1; i >= 0; i--) {
@@ -272,7 +300,7 @@ export async function apply(root: string, sha: string, token = ""): Promise<stri
       }
       if (oldStamp !== "" && restoredAll) {
         try {
-          fs.writeFileSync(stampFile(root), oldStamp);
+          fs.writeFileSync(stamp, oldStamp);
         } catch {
 
         }
@@ -293,7 +321,13 @@ export function startAutoUpdate(
   root: string,
   onEvent: (e: UpdateEvent) => void,
   quit: () => void,
+  opts: { enabled?: boolean } = {},
 ): { stop: () => void; check: () => Promise<CheckResult> } {
+  const disabledText = t("обновления выключены: включить можно DDNET_AI_UPDATE=on или --update");
+  if (!(opts.enabled ?? UPDATE_ENABLED)) {
+    // No timer, no HTTP request, no file touches at all.
+    return { stop: () => {}, check: async () => ({ kind: "stopped", text: disabledText }) };
+  }
   let stopped = false;
   let saidGit = false;
 
