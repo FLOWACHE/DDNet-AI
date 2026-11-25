@@ -75,7 +75,7 @@ export type Section = {
 const front = (col: Collision, i: number): number => (col.frontIndex === undefined ? 0 : col.frontIndex[i]);
 const centreOf = (col: Collision, i: number): { x: number; y: number } => ({ x: (i % col.width) * TILE + TILE / 2, y: Math.floor(i / col.width) * TILE + TILE / 2 });
 
-export function cellKinds(col: Collision): Uint8Array {
+export function cellKinds(col: Collision, throughFreeze = false): Uint8Array {
   const W = col.width;
   const H = col.height;
   const kinds = new Uint8Array(W * H);
@@ -102,7 +102,7 @@ export function cellKinds(col: Collision): Uint8Array {
       const tt = col.teleType === undefined ? 0 : col.teleType[i];
       if (col.isSolid(c.x, c.y) || col.isDeath(c.x, c.y) || tt === TILE_TELEINEVIL || tt === TILE_TELECHECKINEVIL || tt === TILE_TELECHECKIN) kinds[i] = CELL_BLOCKED;
 
-      else if (col.isAnyFreeze(c.x, c.y)) kinds[i] = col.isDeepFreeze(c.x, c.y) ? CELL_BLOCKED : thawNear(x, y) || fallU[i] === 1 ? CELL_THAW : CELL_BLOCKED;
+      else if (col.isAnyFreeze(c.x, c.y)) kinds[i] = col.isDeepFreeze(c.x, c.y) ? CELL_BLOCKED : throughFreeze || thawNear(x, y) || fallU[i] === 1 ? CELL_THAW : CELL_BLOCKED;
       else if (tt === TILE_TELEIN && col.teleNumber !== undefined && col.teleNumber[i] !== 0) kinds[i] = CELL_TELE;
     }
   }
@@ -310,10 +310,10 @@ export function thawCheck(col: Collision, path: readonly number[], kinds: Uint8A
   return -1;
 }
 
-export function courseOf(col: Collision): Course | null {
+export function courseOf(col: Collision, throughFreeze = false): Course | null {
   const W = col.width;
   const H = col.height;
-  const kinds = cellKinds(col);
+  const kinds = cellKinds(col, throughFreeze);
   const clear = clearance(kinds, W, H);
   const support = supportOf(col);
   let sources = tilesOf(col, SPAWN_TILES).filter((i) => kinds[i] !== CELL_BLOCKED);
@@ -388,7 +388,7 @@ export function courseOf(col: Collision): Course | null {
 
   const touch = thawTouch(col);
   let directed = false;
-  if (thawCheck(col, path, kinds, touch) >= 0) {
+  if (!throughFreeze && thawCheck(col, path, kinds, touch) >= 0) {
     const d = directedPath(col, kinds, exits, finish, path[0], stepCost, touch);
     if (d !== null) {
       path = d;

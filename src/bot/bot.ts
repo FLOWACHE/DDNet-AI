@@ -78,7 +78,7 @@ import type { CursorHint, CursorProducer, CursorShape } from "./cursor.ts";
 import { deadZone, findRoute, spawnTiles } from "../plan/route.ts";
 import { RaceDriver, isRaceMap, raceMapAnalysis, raceMapLikely } from "../plan/race.ts";
 import { GoresDriver } from "../plan/goresDriver.ts";
-import { goresSource, mapKeyOf, withSpawnRebuilt } from "../plan/goresMap.ts";
+import { GOALS_KEPT_SOLVER, goresSource, mapKeyOf, withSpawnRebuilt } from "../plan/goresMap.ts";
 import type { CourseSource, MapSolution, SolvedSection } from "../plan/goresMap.ts";
 import { FreezeMemory } from "../plan/memory.ts";
 import { gridHash } from "../plan/routeChoice.ts";
@@ -1556,8 +1556,16 @@ export class DdnetBot {
 
   private raceOn = false;
   private raceGaveUpSaid = false;
-  private race: RaceDriver | null = null;
+  private race: RaceDriver | GoresDriver | null = null;
   private raceNoMapSaid = false;
+  private raceSolved: { col: Collision; source: CourseSource; driver: GoresDriver } | null = null;
+  private raceSrc: { col: Collision; source: CourseSource | null; float: boolean } | null = null;
+  private raceSolveHost: GoresSolveHost | null = null;
+  private raceKey = "";
+  private raceGiven = false;
+  private raceGivenComplete = false;
+  private raceAnalyzeMs = 0;
+  private raceDebugMs = 0;
 
   private goresOn = false;
   private goresGaveUpSaid = false;
@@ -1910,6 +1918,7 @@ export class DdnetBot {
     this.endDuelScore();
     this.saveRoutes(true);
     this.libBuilder?.cancel();
+    this.dropRace();
     this.dropGores();
 
     this.goresFloat(false);
@@ -3327,8 +3336,13 @@ export class DdnetBot {
 
   private dropRace(): void {
     this.race = null;
+    this.raceSolved = null;
+    this.raceKey = "";
+    this.raceGiven = false;
+    this.raceGivenComplete = false;
     this.raceNoMapSaid = false;
     this.raceGaveUpSaid = false;
+    this.raceSolveHost?.cancel();
   }
 
   private raceCommand(on: boolean): string {
@@ -3336,6 +3350,7 @@ export class DdnetBot {
       if (!this.raceOn) return "race: off";
       this.raceOn = false;
       this.dropRace();
+      if (!this.goresOn) this.goresFloat(false);
       return "race: off -- plays as usual";
     }
     if (!this.raceAllowed()) return "race: switched off (DDNET_AI_RACE=0, or race:false in the config)";
@@ -3355,45 +3370,87 @@ export class DdnetBot {
     return `${gave}race: on -- ${what}`;
   }
 
+  private raceSourceOf(col: Collision): CourseSource | null {
+    if (this.raceSrc === null || this.raceSrc.col !== col) this.raceSrc = { col, source: goresSource(col, GOALS_KEPT_SOLVER, true), float: float32 };
+    else if (float32 && !this.raceSrc.float) {
+      const src = this.raceSrc.source;
+      this.raceSrc = { col, source: src === null ? null : withSpawnRebuilt(col, src), float: true };
+    }
+    return this.raceSrc.source;
+  }
+
   private driveRace(client: TwClient, self: TeeState): void {
     const col = this.world.collision;
-    if (this.race === null || this.race.col !== col) {
+    if (this.raceSolved === null || this.raceSolved.col !== col) {
       this.dropRace();
-      if (!isRaceMap(col)) {
+      const source = this.raceSourceOf(col);
+      if (!isRaceMap(col) || source === null) {
         if (!this.raceNoMapSaid) {
           this.raceNoMapSaid = true;
-          this.emit("event", t("гонка: на этой карте нет финиша, бот ждёт (!style default, чтобы играть как обычно)"));
+          this.emit("event", t("гонка: на этой карте нет трассы от старта до финиша, бот ждёт (!style default, чтобы играть как обычно)"));
         }
         this.idle();
         return;
       }
 
-      // Short legs keep each plan to a few tiles: on real maps a 32-tile leg
-      // often ends behind a wall that needs a precise hook, which the walker
-      // cannot execute in one go. Shorter legs chain those moves reliably.
-      this.race = new RaceDriver(col, {
-        killCooldownTicks: KILL_COOLDOWN_TICKS,
-        legTiles: 12,
-        legMaxTicks: 900,
-        segment: { planWork: 6_000_000, thinNodes: 60_000, planMs: 30_000 },
-      });
+      this.goresFloat(true);
+      const driver = new GoresDriver(col, source, { killCooldownTicks: KILL_COOLDOWN_TICKS });
+      this.race = driver;
+      this.raceSolved = { col, source, driver };
+      this.raceKey = `race|${mapKeyOf(col, null)}`;
+      this.raceGiven = false;
+      this.raceGivenComplete = false;
+      this.raceAnalyzeMs = 0;
+      this.raceSolveHost ??= new GoresSolveHost({ polish: false, duty: GORES_SPARE_DUTY_PERCENT });
+      this.raceSolveHost.start(col, this.raceKey, null, {}, null, true);
+
       const a = raceMapAnalysis(col);
       this.emit("event", t("гонка: карта {w}×{h}: старт {start} ({sb}), финиш {finish} ({fb}), КП {cps}, фриз {freeze}, стены {solid}, телепорты {tele}", {
         w: a.width, h: a.height, start: a.startTiles, sb: a.startBoxes, finish: a.finishTiles, fb: a.finishBoxes,
         cps: a.timeCps, freeze: a.freezeTiles, solid: a.solidTiles, tele: a.teleTiles,
       }));
-      this.emit("event", t("гонка: бежит от старта к финишу"));
+      this.emit("event", t("гонка: анализирую весь путь до финиша, потом побегу"));
     }
-    const race = this.race;
-    const was = race.phase;
-    race.noteKill(this.lastKillTick);
-    const r = race.step(self, this.world.tick, this.lagTicks());
-    if (race.gaveUp && !this.raceGaveUpSaid) {
+
+    const solved = this.raceSolved;
+    if (solved === null) return;
+    const driver = solved.driver;
+    const host = this.raceSolveHost;
+    const status = host !== null && host.key === this.raceKey ? host.status() : null;
+    if (status !== null && status.state === "solving" && Date.now() - this.raceAnalyzeMs >= 2000) {
+      this.raceAnalyzeMs = Date.now();
+      this.log(`race: analyzing the whole path: ${status.done}/${status.total} sections, ${status.attempts} searches, ${status.text}`);
+    }
+    const found = host !== null && host.key === this.raceKey ? host.solution() : null;
+    if (process.env.DDNET_AI_RACE_DEBUG === "1" && Date.now() - this.raceDebugMs >= 2000) {
+      this.raceDebugMs = Date.now();
+      this.log(`race debug: key=${host?.key}/${this.raceKey} given=${this.raceGiven} sol=${found === null ? "null" : found.sections.length} state=${status?.state ?? "-"}`);
+    }
+    if (found !== null && found.sections.length > 0 && (!this.raceGiven || (found.complete && !this.raceGivenComplete))) {
+      driver.setSolution(found);
+      this.raceGiven = true;
+      this.raceGivenComplete = found.complete;
+      const secs = found.sections.length;
+      const seconds = (found.bestTicks / 50).toFixed(1);
+      this.emit("event", found.complete
+        ? t("гонка: путь разобран целиком: {sec} участков, {s} с, бегу", { sec: secs, s: seconds })
+        : t("гонка: путь разобран частично: {sec} участков, {s} с, бегу по известной части", { sec: secs, s: seconds }));
+    }
+    if (!this.raceGiven) {
+      if (status?.state === "failed") this.emit("event", t("гонка: солвер не нашёл путь, бот ждёт"));
+      this.idle();
+      return;
+    }
+
+    const was = driver.phase;
+    driver.noteKill(this.lastKillTick);
+    const r = driver.step(self, this.world.tick, this.lagTicks());
+    if (driver.gaveUp && !this.raceGaveUpSaid) {
       this.raceGaveUpSaid = true;
       this.emit("event", t("гонка: нет пути, бот ждёт"));
-    }
-    for (const n of race.takeNotes()) this.log(`race: ${n}`);
-    if (was !== "done" && race.phase === "done") this.emit("event", t("гонка: финиш за {s} с", { s: (race.clock.time / 50).toFixed(2) }));
+    } else if (!driver.gaveUp) this.raceGaveUpSaid = false;
+    for (const n of driver.takeNotes()) this.log(`race: ${n}`);
+    if (was !== "done" && driver.phase === "done") this.emit("event", t("гонка: финиш за {s} с", { s: (driver.clock.time / 50).toFixed(2) }));
     if (r.kill && this.world.tick - this.lastKillTick >= KILL_COOLDOWN_TICKS && this.sendKill(client)) {
       this.lastKillTick = this.world.tick;
       this.stats.selfKills++;
@@ -3500,7 +3557,7 @@ export class DdnetBot {
     if (!on) {
       if (!this.goresOn) return "gores: off";
       this.goresOn = false;
-      this.goresFloat(false);
+      if (!this.raceOn) this.goresFloat(false);
       this.dropGores();
       if (this.timing !== null) this.timing.clock.fixedHold = null;
       if (!this.goresTimingWas) this.setInputTiming(false);

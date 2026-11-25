@@ -45,6 +45,8 @@ export type GoresInit = {
   polish?: boolean;
 
   polishResume?: { pass: number; sol: MapSolution } | null;
+
+  throughFreeze?: boolean;
 };
 
 export type FromGores = SolverEvent;
@@ -306,7 +308,7 @@ export class GoresSolveHost {
     return `${base}; looking for a faster route (pass ${pass} of ${of}${p !== null && p.total > 0 ? `, ${p.done} of ${p.total}` : ""})`;
   }
 
-  start(col: Collision, key: string, resume: MapSolution | null, solverOpts: Partial<SolverOpts> = {}, polishResume: { pass: number; sol: MapSolution } | null = null): void {
+  start(col: Collision, key: string, resume: MapSolution | null, solverOpts: Partial<SolverOpts> = {}, polishResume: { pass: number; sol: MapSolution } | null = null, throughFreeze = false): void {
     if (this.worker !== null && this.forKey === key) return;
     if (resume !== null && (!validSolution(resume) || resume.key !== key || resume.physicsVersion !== PHYSICS_VERSION)) resume = null;
 
@@ -357,7 +359,7 @@ export class GoresSolveHost {
       flags[FLAG_PAUSE] = this.paused ? 1 : 0;
       flags[FLAG_DUTY] = this.duty;
       this.flags = flags;
-      worker = this.makeWorker({ key, snapshot: col.snapshot(), resume, solverOpts, flags: buffer, polish: this.polishOn, polishResume: goOn });
+      worker = this.makeWorker({ key, snapshot: col.snapshot(), resume, solverOpts, flags: buffer, polish: this.polishOn, polishResume: goOn, throughFreeze });
     } catch (err) {
       this.flags = null;
       this.lost(err instanceof Error ? err.message : String(err));

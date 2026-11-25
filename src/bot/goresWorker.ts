@@ -135,7 +135,7 @@ function main(): void {
 
   gate();
   const col = Collision.fromSnapshot(init.snapshot);
-  const source = goresSource(col, GOALS_KEPT_SOLVER);
+  const source = goresSource(col, GOALS_KEPT_SOLVER, init.throughFreeze === true);
   if (source === null) {
     post({ t: "failed", why: "no course" });
     return;

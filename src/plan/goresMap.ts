@@ -260,10 +260,10 @@ export function withSpawnRebuilt(col: Collision, src: CourseSource): CourseSourc
   return { ...src, spawn: spawnRest(col, courseStartOf(src.course), true) };
 }
 
-export function goresSource(col: Collision, goalsKept: number = GOALS_KEPT): CourseSource | null {
-  const course = courseOf(col);
+export function goresSource(col: Collision, goalsKept: number = GOALS_KEPT, throughFreeze = false): CourseSource | null {
+  const course = courseOf(col, throughFreeze);
   if (course === null) return null;
-  const kinds = cellKinds(col);
+  const kinds = cellKinds(col, throughFreeze);
   const goals = new Map<string, PathGoal>();
   return {
     course,
