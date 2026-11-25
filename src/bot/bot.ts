@@ -92,6 +92,7 @@ import { autoSpotsUsed, loadUserLibrary, saveUserLibrary, userLibraryDirty } fro
 import { DUTY_PERCENT, FIGHT_DUTY_PERCENT, LibraryBuilder } from "./libraryThread.ts";
 import type { AutoStatus } from "./libraryThread.ts";
 import { DUTY_PERCENT as GORES_DUTY_PERCENT, GORES_LOW_DUTY_PERCENT, SPARE_DUTY_PERCENT as GORES_SPARE_DUTY_PERCENT, GoresSolveHost } from "./goresThread.ts";
+import { RaceFastHost } from "./raceFastThread.ts";
 import { getPack } from "./goresPackFetch.ts";
 import type { PackFetchFn, PackMiss } from "./goresPackFetch.ts";
 import { float32, setFloat32 } from "../core/float.ts";
@@ -1560,12 +1561,11 @@ export class DdnetBot {
   private raceNoMapSaid = false;
   private raceSolved: { col: Collision; source: CourseSource; driver: GoresDriver } | null = null;
   private raceSrc: { col: Collision; source: CourseSource | null; float: boolean } | null = null;
-  private raceSolveHost: GoresSolveHost | null = null;
+  private raceFastHost: RaceFastHost | null = null;
   private raceKey = "";
   private raceGiven = false;
   private raceGivenComplete = false;
   private raceAnalyzeMs = 0;
-  private raceDebugMs = 0;
 
   private goresOn = false;
   private goresGaveUpSaid = false;
@@ -3342,7 +3342,7 @@ export class DdnetBot {
     this.raceGivenComplete = false;
     this.raceNoMapSaid = false;
     this.raceGaveUpSaid = false;
-    this.raceSolveHost?.cancel();
+    this.raceFastHost?.cancel();
   }
 
   private raceCommand(on: boolean): string {
@@ -3401,8 +3401,8 @@ export class DdnetBot {
       this.raceGiven = false;
       this.raceGivenComplete = false;
       this.raceAnalyzeMs = 0;
-      this.raceSolveHost ??= new GoresSolveHost({ polish: false, duty: GORES_SPARE_DUTY_PERCENT });
-      this.raceSolveHost.start(col, this.raceKey, null, {}, null, true);
+      this.raceFastHost ??= new RaceFastHost();
+      this.raceFastHost.start(col, { cutTiles: 160, timeLimitMs: 4000, maxExpansions: 200_000 });
 
       const a = raceMapAnalysis(col);
       this.emit("event", t("гонка: карта {w}×{h}: старт {start} ({sb}), финиш {finish} ({fb}), КП {cps}, фриз {freeze}, стены {solid}, телепорты {tele}", {
@@ -3415,17 +3415,13 @@ export class DdnetBot {
     const solved = this.raceSolved;
     if (solved === null) return;
     const driver = solved.driver;
-    const host = this.raceSolveHost;
-    const status = host !== null && host.key === this.raceKey ? host.status() : null;
+    const host = this.raceFastHost;
+    const status = host !== null ? host.status() : null;
     if (status !== null && status.state === "solving" && Date.now() - this.raceAnalyzeMs >= 2000) {
       this.raceAnalyzeMs = Date.now();
-      this.log(`race: analyzing the whole path: ${status.done}/${status.total} sections, ${status.attempts} searches, ${status.text}`);
+      this.log(`race: fast path search: ${status.done}/${status.total} sections, ${status.note}`);
     }
-    const found = host !== null && host.key === this.raceKey ? host.solution() : null;
-    if (process.env.DDNET_AI_RACE_DEBUG === "1" && Date.now() - this.raceDebugMs >= 2000) {
-      this.raceDebugMs = Date.now();
-      this.log(`race debug: key=${host?.key}/${this.raceKey} given=${this.raceGiven} sol=${found === null ? "null" : found.sections.length} state=${status?.state ?? "-"}`);
-    }
+    const found = host !== null ? host.solution() : null;
     if (found !== null && found.sections.length > 0 && (!this.raceGiven || (found.complete && !this.raceGivenComplete))) {
       driver.setSolution(found);
       this.raceGiven = true;
