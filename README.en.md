@@ -136,7 +136,7 @@ Variables and flags:
 - `DDNET_AI_USER_DATA` — a different Electron `userData` folder (`app.setPath("userData", …)` in `app/main.js`).
 - `DDNET_AI_UPDATE` / `--update` — **updates are off by default**. See [Updates](#updates).
 
-Exceptions: a Start Menu/Desktop shortcut is created only when the user clicks the button, and DDNet demos are read from the player's DDNet installation; neither is bot data.
+Exceptions: a Start Menu/Desktop shortcut is created only when the user clicks the button, DDNet demos are read from the player's DDNet installation, and gores (a separate mode, off by default) may read ready-made routes from `github.com/Wranked1/DDNet-AI` — read-only, with the address changeable through `DDNET_AI_GORES_PACK_URL`. None of these are bot data directories, and race never writes there.
 
 ## Controls
 

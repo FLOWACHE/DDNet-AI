@@ -5,7 +5,9 @@ import type { Collision } from "../core/collision.ts";
 import type { CourseSource, MapSolution } from "../plan/goresMap.ts";
 import { FLOAT_OFF_WHY, PACK_MAX_BYTES, PACK_VERSION, parsePack, verifyPack } from "../plan/goresPack.ts";
 
-export const ROUTE_PACK_URL = "https://raw.githubusercontent.com/Wranked1/DDNet-AI/routes/gores/";
+// Read-only route data for the separate gores mode (never used by race, and
+// never by the updater). Override with DDNET_AI_GORES_PACK_URL if desired.
+export const ROUTE_PACK_URL = (process.env.DDNET_AI_GORES_PACK_URL ?? "https://raw.githubusercontent.com/Wranked1/DDNet-AI/routes/gores/").replace(/\/?$/, "/");
 export const FETCH_TIMEOUT_MS = 8000;
 const USER_AGENT = "ddnet-ai-routes";
 const KEY_RE = /^[0-9a-f]{32}$/;
