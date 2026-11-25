@@ -260,6 +260,7 @@ const ROUTE_NODES = 200_000;
 const ROUTE_MAX_COST = 20_000;
 
 const NOT_STARTED = 1e6;
+const GIVEUP_RETRY_TICKS = 30 * 50;
 
 export type RaceStep = { input: PlayerInput; kill: boolean };
 
@@ -310,6 +311,7 @@ export class RaceDriver {
   private bestEver = Infinity;
   private livesWithoutGain = 0;
   private gaveUpValue = false;
+  private gaveUpAt = -1;
   private partialNoted = false;
   private lastKill = -1_000_000;
   private killAsked = -1;
@@ -416,6 +418,7 @@ export class RaceDriver {
       // A completed run is a fresh start, not another failed life: forget
       // stalled cells and the "no way found" verdict from the previous run.
       this.gaveUpValue = false;
+      this.gaveUpAt = -1;
       this.livesWithoutGain = 0;
       this.failedAt.clear();
     }
@@ -501,7 +504,16 @@ export class RaceDriver {
       }
       return { input: this.idle, kill: again };
     }
-    if (this.gaveUpValue) return { input: this.idle, kill: false };
+    if (this.gaveUpValue) {
+      if (this.gaveUpAt < 0) this.gaveUpAt = tick;
+      if (tick - this.gaveUpAt < GIVEUP_RETRY_TICKS) return { input: this.idle, kill: false };
+      // Standing forever helps nobody: try the route again after a pause.
+      this.gaveUpValue = false;
+      this.gaveUpAt = -1;
+      this.livesWithoutGain = 0;
+      this.failedAt.clear();
+      this.note("trying the route again after a pause");
+    }
 
     if (this.killAsked >= 0 && tick - this.killAsked < this.o.killCooldownTicks) return { input: this.idle, kill: false };
     this.killAsked = -1;

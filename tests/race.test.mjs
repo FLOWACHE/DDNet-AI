@@ -210,3 +210,15 @@ test("a finished run clears the no-way-found verdict", () => {
   assert.equal(d.gaveUp, false);
   assert.equal(d.clock.state, "none");
 });
+
+test("a no-way-found verdict is retried after a pause instead of standing forever", () => {
+  const col = makeMap({ game: [[1, 1, 33], [5, 5, 34]] });
+  const d = driver(col, { maxLivesWithoutGain: 1 });
+  d.lived = true;
+  d.respawned();
+  assert.equal(d.gaveUp, true);
+  d.gaveUpAt = 0;
+  d.step(tee(at(2, 2)), 30 * 50 + 1, 0);
+  assert.equal(d.gaveUp, false);
+  assert.ok(d.takeNotes().some((n) => /trying the route again/.test(n)));
+});

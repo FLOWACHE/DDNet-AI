@@ -3368,7 +3368,15 @@ export class DdnetBot {
         return;
       }
 
-      this.race = new RaceDriver(col, { killCooldownTicks: KILL_COOLDOWN_TICKS });
+      // Short legs keep each plan to a few tiles: on real maps a 32-tile leg
+      // often ends behind a wall that needs a precise hook, which the walker
+      // cannot execute in one go. Shorter legs chain those moves reliably.
+      this.race = new RaceDriver(col, {
+        killCooldownTicks: KILL_COOLDOWN_TICKS,
+        legTiles: 12,
+        legMaxTicks: 900,
+        segment: { planWork: 6_000_000, thinNodes: 60_000, planMs: 30_000 },
+      });
       const a = raceMapAnalysis(col);
       this.emit("event", t("гонка: карта {w}×{h}: старт {start} ({sb}), финиш {finish} ({fb}), КП {cps}, фриз {freeze}, стены {solid}, телепорты {tele}", {
         w: a.width, h: a.height, start: a.startTiles, sb: a.startBoxes, finish: a.finishTiles, fb: a.finishBoxes,
