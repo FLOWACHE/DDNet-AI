@@ -539,6 +539,7 @@ export const EN: Record<string, string> = {
   "способы играть, как в окне (gores: проход gores-карты по готовому маршруту, тестовая)": "ways to play, as in the window (gores: a gores map along a route solved ahead, a test feature)",
   "fight (по умолчанию), passive (не вступать в бой), hold (стоять), race (гонка) или gores (gores-карта, тестовая)": "fight (default), passive (do not engage), hold (stand still), race (a run) or gores (a gores map, a test feature)",
   "fight (по умолчанию), passive (не вступать в бой), hold (стоять) или gores (gores-карта, тестовая)": "fight (default), passive (do not engage), hold (stand still) or gores (a gores map, a test feature)",
+  "гонка от старта до финиша по обычным рейс-картам (включено по умолчанию, без env-переменной)": "a run from the start to the finish on normal race maps (on by default, no environment variable)",
   "тест (по умолчанию выключено): проходить gores-карту от старта до финиша по заранее решённому маршруту": "test feature (off by default): run a gores map from the start to the finish along a route solved ahead",
   "горес: маршрут решается в фоне": "gores: the route is being solved in the background",
   "горес: маршрут этой карты взят с диска": "gores: this map's route was read from disk",

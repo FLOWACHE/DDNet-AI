@@ -979,7 +979,7 @@ const DEFAULT_CLIP_DIR = "runs/clips";
 
 const ORDER_MIN_INTERVAL_MS = 1000;
 
-const ORDER_EXCLUDED = new Set(["owner", "llm", "quit", "lang", "log", "help", "brain", "try", "nick", "clan", "skin", "edgeskip", "keepside", "hallgate", "wbretry", "weakwarm", "adaptive", "lagparity", "inputclock", "mapbest", "duocoop", "gores", "announce"]);
+const ORDER_EXCLUDED = new Set(["owner", "llm", "quit", "lang", "log", "help", "brain", "try", "nick", "clan", "skin", "edgeskip", "keepside", "hallgate", "wbretry", "weakwarm", "adaptive", "lagparity", "inputclock", "mapbest", "duocoop", "race", "gores", "announce"]);
 
 export interface CommandSpec {
   name: string;
@@ -1068,6 +1068,7 @@ export function commandSpecs(t: Say, race = false, gores = false): CommandSpec[]
     c("inputclock", "on|off", t("тест (по умолчанию выключено): пинг по ответам сервера — тик, на который сервер взял каждый ввод, точная задержка каждого решения без нажатий"), onOff),
     c("mapbest", "on|off", t("тест (по умолчанию выключено): начинать карту с пробной настройки (!try), которая на этой карте явно лучше настроек по умолчанию"), onOff),
     c("duocoop", "on|off", t("тест (по умолчанию выключено): два бота держат разные стороны ВБ"), onOff),
+    c("race", "on|off", t("гонка от старта до финиша по обычным рейс-картам (включено по умолчанию, без env-переменной)"), onOff),
     c("gores", "on|off", t("тест (по умолчанию выключено): проходить gores-карту от старта до финиша по заранее решённому маршруту"), onOff),
     c("announce", "on|off", t("по умолчанию включено: раз в 3 минуты писать одному игроку в личку, что это бот и где его скачать (каждому один раз)"), onOff),
     c("nick", "<name>", t("сменить ник на ходу (сервер принимает смену раз в 5 с)")),
@@ -2630,6 +2631,17 @@ export class DdnetBot {
         this.cfg.duoCoop = want === "on";
         this.saveSetting("duoCoop", want === "on" ? "on" : undefined);
         return state();
+      }
+
+      case "race": {
+        const want = arg.trim().toLowerCase();
+        const state = (): string => `race: ${this.raceAllowed() ? "on" : "off"} -- !style race runs from the spawn through the start line to the finish, fights nobody`;
+        if (want === "") return `${state()}; !race on | off`;
+        if (want !== "on" && want !== "off") return "!race on | off";
+        this.cfg.race = want === "on";
+        this.saveSetting("race", want === "on" ? undefined : "off");
+        if (want === "on") return `${state()}; ${this.raceCommand(true)}`;
+        return `${this.raceCommand(false)}; ${state()}`;
       }
 
       case "gores": {
