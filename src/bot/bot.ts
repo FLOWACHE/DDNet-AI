@@ -76,7 +76,7 @@ import type { HandsOther, HandsOut, HandsPoint, HandsStats } from "./hands.ts";
 import { HumanCursor, cursorTee, hintFrom } from "./cursor.ts";
 import type { CursorHint, CursorProducer, CursorShape } from "./cursor.ts";
 import { deadZone, findRoute, spawnTiles } from "../plan/route.ts";
-import { RaceDriver, isRaceMap, raceMapLikely } from "../plan/race.ts";
+import { RaceDriver, isRaceMap, raceMapAnalysis, raceMapLikely } from "../plan/race.ts";
 import { GoresDriver } from "../plan/goresDriver.ts";
 import { goresSource, mapKeyOf, withSpawnRebuilt } from "../plan/goresMap.ts";
 import type { CourseSource, MapSolution, SolvedSection } from "../plan/goresMap.ts";
@@ -1068,7 +1068,7 @@ export function commandSpecs(t: Say, race = false, gores = false): CommandSpec[]
     c("inputclock", "on|off", t("тест (по умолчанию выключено): пинг по ответам сервера — тик, на который сервер взял каждый ввод, точная задержка каждого решения без нажатий"), onOff),
     c("mapbest", "on|off", t("тест (по умолчанию выключено): начинать карту с пробной настройки (!try), которая на этой карте явно лучше настроек по умолчанию"), onOff),
     c("duocoop", "on|off", t("тест (по умолчанию выключено): два бота держат разные стороны ВБ"), onOff),
-    c("race", "on|off", t("гонка от старта до финиша по обычным рейс-картам (включено по умолчанию, без env-переменной)"), onOff),
+    c("race", "on|off|analyze", t("гонка от старта до финиша по обычным рейс-картам (включено по умолчанию, без env-переменной); analyze: разбор тайлов карты"), onOff),
     c("gores", "on|off", t("тест (по умолчанию выключено): проходить gores-карту от старта до финиша по заранее решённому маршруту"), onOff),
     c("announce", "on|off", t("по умолчанию включено: раз в 3 минуты писать одному игроку в личку, что это бот и где его скачать (каждому один раз)"), onOff),
     c("nick", "<name>", t("сменить ник на ходу (сервер принимает смену раз в 5 с)")),
@@ -2636,7 +2636,12 @@ export class DdnetBot {
       case "race": {
         const want = arg.trim().toLowerCase();
         const state = (): string => `race: ${this.raceAllowed() ? "on" : "off"} -- !style race runs from the spawn through the start line to the finish, fights nobody`;
-        if (want === "") return `${state()}; !race on | off`;
+        if (want === "analyze") {
+          if (!this.collisionReady) return "race: the map is not loaded yet, try again in a moment";
+          const a = raceMapAnalysis(this.world.collision);
+          return `race map: ${a.width}×${a.height}, start ${a.startTiles} tiles (${a.startBoxes} lines), finish ${a.finishTiles} tiles (${a.finishBoxes} lines), time cps ${a.timeCps}, freeze ${a.freezeTiles}, solid ${a.solidTiles}, tele ${a.teleTiles}`;
+        }
+        if (want === "") return `${state()}; !race on | off | analyze`;
         if (want !== "on" && want !== "off") return "!race on | off";
         this.cfg.race = want === "on";
         this.saveSetting("race", want === "on" ? undefined : "off");
@@ -3364,6 +3369,11 @@ export class DdnetBot {
       }
 
       this.race = new RaceDriver(col, { killCooldownTicks: KILL_COOLDOWN_TICKS });
+      const a = raceMapAnalysis(col);
+      this.emit("event", t("гонка: карта {w}×{h}: старт {start} ({sb}), финиш {finish} ({fb}), КП {cps}, фриз {freeze}, стены {solid}, телепорты {tele}", {
+        w: a.width, h: a.height, start: a.startTiles, sb: a.startBoxes, finish: a.finishTiles, fb: a.finishBoxes,
+        cps: a.timeCps, freeze: a.freezeTiles, solid: a.solidTiles, tele: a.teleTiles,
+      }));
       this.emit("event", t("гонка: бежит от старта к финишу"));
     }
     const race = this.race;

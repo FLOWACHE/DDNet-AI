@@ -2,7 +2,7 @@ import type { Collision } from "../core/collision.ts";
 import type { Vec2 } from "../core/vmath.ts";
 import type { PlayerInput, TeeState } from "../core/types.ts";
 import { emptyInput } from "../core/types.ts";
-import { PHYSICAL_SIZE, TILE_TELEIN, TILE_TELEINEVIL } from "../core/tuning.ts";
+import { PHYSICAL_SIZE, TILE_SOLID, TILE_TELEIN, TILE_TELEINEVIL, TILE_TELEOUT } from "../core/tuning.ts";
 import { findRouteGen, prepareRouteGen } from "./route.ts";
 import type { RouteStep } from "./route.ts";
 import { DEFAULT_SEARCH, PathWalker, fieldOfGen, prepareTablesGen } from "./pathfind.ts";
@@ -82,6 +82,48 @@ export function raceLines(col: Collision): RaceLines {
 
 export function isRaceMap(col: Collision): boolean {
   return raceLines(col).finish.length > 0;
+}
+
+export type RaceMapAnalysis = {
+  width: number;
+  height: number;
+  startTiles: number;
+  finishTiles: number;
+  startBoxes: number;
+  finishBoxes: number;
+  timeCps: number;
+  freezeTiles: number;
+  solidTiles: number;
+  teleTiles: number;
+};
+
+/** A compact, honest description of what the race driver sees on this map. */
+export function raceMapAnalysis(col: Collision): RaceMapAnalysis {
+  const lines = raceLines(col);
+  let freezeTiles = 0;
+  let solidTiles = 0;
+  let teleTiles = 0;
+  for (let i = 0; i < col.tiles.length; i++) {
+    const tx = i % col.width;
+    const ty = Math.trunc(i / col.width);
+    if (col.isAnyFreeze(tx * TILE + TILE / 2, ty * TILE + TILE / 2)) freezeTiles++;
+    const t = col.tiles[i];
+    const f = col.frontIndex?.[i] ?? 0;
+    if (t === TILE_SOLID || f === TILE_SOLID) solidTiles++;
+    if (t === TILE_TELEIN || t === TILE_TELEINEVIL || t === TILE_TELEOUT || f === TILE_TELEIN || f === TILE_TELEINEVIL || f === TILE_TELEOUT) teleTiles++;
+  }
+  return {
+    width: col.width,
+    height: col.height,
+    startTiles: lines.start.length,
+    finishTiles: lines.finish.length,
+    startBoxes: lines.startBoxes.length,
+    finishBoxes: lines.finishBoxes.length,
+    timeCps: lines.timeCps,
+    freezeTiles,
+    solidTiles,
+    teleTiles,
+  };
 }
 
 export function raceMapLikely(col: Collision, hasWb: boolean): boolean {
@@ -268,6 +310,7 @@ export class RaceDriver {
   private bestEver = Infinity;
   private livesWithoutGain = 0;
   private gaveUpValue = false;
+  private partialNoted = false;
   private lastKill = -1_000_000;
   private killAsked = -1;
   private finishedAt = -1;
@@ -368,6 +411,7 @@ export class RaceDriver {
     this.lastPos = null;
     this.resetKillTimers(-1);
     this.finishedAt = -1;
+    this.partialNoted = false;
     if (finished) {
       // A completed run is a fresh start, not another failed life: forget
       // stalled cells and the "no way found" verdict from the previous run.
@@ -671,15 +715,48 @@ export class RaceDriver {
     let tele = false;
     if (span > 0) {
       let route: { steps: RouteStep[]; cost: number } | null = null;
+      const cands = boxes
+        .map((b) => ({ x: ((b.x0 + b.x1) / 2) * TILE + TILE / 2, y: Math.round((b.y0 + b.y1) / 2) * TILE + TILE / 2 }))
+        .sort((a, b) => Math.hypot(a.x - pos.x, a.y - pos.y) - Math.hypot(b.x - pos.x, b.y - pos.y))
+        .slice(0, 4);
       if (tries % 2 === 0) {
-
-        const cands = boxes
-          .map((b) => ({ x: ((b.x0 + b.x1) / 2) * TILE + TILE / 2, y: Math.round((b.y0 + b.y1) / 2) * TILE + TILE / 2 }))
-          .sort((a, b) => Math.hypot(a.x - pos.x, a.y - pos.y) - Math.hypot(b.x - pos.x, b.y - pos.y))
-          .slice(0, 4);
         for (const c of cands) {
           const r = yield* findRouteGen(this.col, pos, c, { nearTiles: 1, maxCost: ROUTE_MAX_COST, maxNodes: ROUTE_NODES, partial: false, allowKill: false, throughFreeze: true });
           if (r !== null && (route === null || r.cost < route.cost)) route = r;
+        }
+      }
+      if (route === null) {
+        // A full route to the line is often impossible on a real race map
+        // (the search needs a precise approach to finish tiles). A partial
+        // route still knows how to cross the next stretch of the map, which
+        // is far better than walking straight down the distance field into
+        // the first freeze tile.
+        let best = Infinity;
+        for (const c of cands) {
+          const r = yield* findRouteGen(this.col, pos, c, { nearTiles: 1, maxCost: ROUTE_MAX_COST, maxNodes: ROUTE_NODES, partial: true, allowKill: false, throughFreeze: true });
+          if (r === null || r.steps.length === 0) continue;
+          const end = r.steps[r.steps.length - 1];
+          const score = this.fieldTo(this.phase, end.x * TILE + TILE / 2, end.y * TILE + TILE / 2);
+          if (route === null || score < best || (score === best && r.cost < route.cost)) {
+            route = r;
+            best = score;
+          }
+        }
+        if (route === null) {
+          // The partial search accepts a route only when it cuts the remaining
+          // distance by a third. Far from the line that test can fail even
+          // though a route to a nearer point exists: aim at a field waypoint
+          // partway there and chain those legs together.
+          const fld = this.phase === "start" && this.startField !== null ? this.startField : this.finishField;
+          const fw = fld === null ? null : fieldWaypoint(fld, this.col.width, this.col.height, here, Math.max(span * 4, 40), (x, y) => this.col.isAnyFreeze(x * TILE + TILE / 2, y * TILE + TILE / 2));
+          if (fw !== null) {
+            const r = yield* findRouteGen(this.col, pos, { x: fw.tx * TILE + TILE / 2, y: fw.ty * TILE + TILE / 2 }, { nearTiles: 1, maxCost: ROUTE_MAX_COST, maxNodes: ROUTE_NODES, partial: false, allowKill: false, throughFreeze: true });
+            if (r !== null && r.steps.length > 0) route = r;
+          }
+        }
+        if (route !== null && !this.partialNoted) {
+          this.partialNoted = true;
+          this.note(`no full route to the ${this.phase} line from (${here.tx},${here.ty}); following a partial route of ${route.steps.length} steps towards it`);
         }
       }
       const wp = route === null ? null : waypoint(route.steps, here, span);

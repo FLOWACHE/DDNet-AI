@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { Collision } from "../src/core/collision.ts";
 import { blankTeeState } from "../src/core/types.ts";
-import { TILE_FREEZE } from "../src/core/tuning.ts";
-import { RaceClock, RaceDriver, fieldWaypoint, isRaceMap, raceHit, raceLines, raceMapLikely, waypoint } from "../src/plan/race.ts";
+import { TILE_FREEZE, TILE_SOLID, TILE_TELEIN } from "../src/core/tuning.ts";
+import { RaceClock, RaceDriver, fieldWaypoint, isRaceMap, raceHit, raceLines, raceMapAnalysis, raceMapLikely, waypoint } from "../src/plan/race.ts";
 
 const TILE = 32;
 const at = (tx, ty) => ({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
@@ -51,6 +51,41 @@ test("start and finish tiles are found in both the game and the front layer", ()
   const noRace = makeMap();
   assert.equal(isRaceMap(noRace), false);
   assert.equal(raceMapLikely(noRace, false), false);
+});
+
+test("map analysis reports start/finish, freeze, walls and teleports", () => {
+  const col = makeMap({
+    width: 8,
+    height: 8,
+    game: [[1, 1, 33], [6, 1, 34], [3, 1, 35]],
+    front: [[2, 2, TILE_FREEZE], [4, 2, TILE_SOLID], [5, 2, TILE_TELEIN]],
+  });
+  const a = raceMapAnalysis(col);
+  assert.equal(a.width, 8);
+  assert.equal(a.height, 8);
+  assert.equal(a.startTiles, 1);
+  assert.equal(a.finishTiles, 1);
+  assert.equal(a.startBoxes, 1);
+  assert.equal(a.finishBoxes, 1);
+  assert.equal(a.timeCps, 1);
+  assert.equal(a.freezeTiles, 1);
+  assert.equal(a.solidTiles, 1);
+  assert.equal(a.teleTiles, 1);
+});
+
+test("a blocked map follows a partial route instead of walking into the freeze", () => {
+  const width = 40;
+  const height = 5;
+  const tiles = new Uint8Array(width * height);
+  tiles[2 * width + 1] = 33;
+  tiles[2 * width + 38] = 34;
+  for (let y = 0; y < height; y++) tiles[y * width + 20] = TILE_SOLID;
+  const col = new Collision(width, height, tiles);
+  const d = driver(col, { legTiles: 6 });
+  d.step(tee(at(1, 2)), 1, 0);
+  const notes = d.takeNotes();
+  assert.ok(notes.some((n) => /partial route/.test(n)), `expected a partial-route note, got: ${notes.join(" | ")}`);
+  assert.notEqual(d.leg.to, null, "a waypoint on the partial route is installed");
 });
 
 test("RaceClock starts, finishes, restarts and never finishes before a start", () => {
