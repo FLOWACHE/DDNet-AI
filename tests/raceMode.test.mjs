@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -49,6 +49,16 @@ test("!race on/off, !style race and !mode race work with no environment variable
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("the race button is always visible and enabled only on race-like maps", () => {
+  const page = readFileSync(path.join(REPO, "src", "bot", "page", "page.js"), "utf8");
+  assert.doesNotMatch(page, /rb\.hidden=!raceTest/);
+  assert.doesNotMatch(page, /btns\.race\.hidden=true/);
+  assert.doesNotMatch(page, /sb\.race\.hidden=!pn\.raceTest/);
+  assert.match(page, /rb\.hidden=false;rb\.disabled=!raceOk/);
+  assert.match(page, /sb\.race\.hidden=false/);
+  assert.match(page, /race:t\('Гонка: бежит от старта до финиша/);
 });
 
 test("race commands and help do not call the mode a test feature", () => {
